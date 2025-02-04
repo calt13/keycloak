@@ -40,6 +40,7 @@ type Type = "resources" | "policies";
 type ResourcesPolicySelectProps = {
   name: Type;
   clientId: string;
+  isPermissionClient?: boolean;
   permissionId?: string;
   variant?: Variant;
   preSelected?: string;
@@ -76,6 +77,7 @@ const typeMapping: TypeMapping = {
 export const ResourcesPolicySelect = ({
   name,
   clientId,
+  isPermissionClient,
   permissionId,
   variant = SelectVariant.typeaheadMulti,
   preSelected,
@@ -254,7 +256,11 @@ export const ResourcesPolicySelect = ({
               field.onChange([]);
               setSearch("");
             }}
-            selections={field.value}
+            selections={
+              variant === SelectVariant.typeaheadMulti
+                ? field.value
+                : items.find((i) => i.id === field.value?.[0])?.name
+            }
             onSelect={(selectedValue) => {
               const option = selectedValue.toString();
               if (variant === SelectVariant.typeaheadMulti) {
@@ -276,7 +282,7 @@ export const ResourcesPolicySelect = ({
             typeAheadAriaLabel={t(name)}
             chipGroupComponent={toChipGroupItems(field)}
             footer={
-              name === "policies" ? (
+              name === "policies" && !isPermissionClient ? (
                 <Button
                   variant="link"
                   isInline

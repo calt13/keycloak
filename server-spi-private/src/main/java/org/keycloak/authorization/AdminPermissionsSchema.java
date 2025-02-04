@@ -21,11 +21,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.keycloak.authorization.model.Policy;
 
+import org.keycloak.authorization.model.Policy;
 import org.keycloak.authorization.model.Resource;
 import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.authorization.model.Scope;
+import org.keycloak.authorization.store.ResourceStore;
 import org.keycloak.authorization.store.ScopeStore;
 import org.keycloak.authorization.store.StoreFactory;
 import org.keycloak.common.Profile;
@@ -33,6 +34,7 @@ import org.keycloak.models.ClientModel;
 import org.keycloak.models.Constants;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ModelException;
+import org.keycloak.models.ModelIllegalStateException;
 import org.keycloak.models.ModelValidationException;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -48,12 +50,16 @@ import org.keycloak.representations.idm.authorization.ScopeRepresentation;
 
 public class AdminPermissionsSchema extends AuthorizationSchema {
 
-    public static final String MANAGE = "manage";
-    public static final String VIEW = "view";
-
     public static final String USERS_RESOURCE_TYPE = "Users";
 
-    public static final ResourceType USERS = new ResourceType(USERS_RESOURCE_TYPE, Set.of(MANAGE, VIEW));
+    //scopes
+    public static final String MANAGE = "manage";
+    public static final String VIEW = "view";
+    public static final String IMPERSONATE = "impersonate";
+    public static final String MAP_ROLES = "map-roles";
+    public static final String MANAGE_GROUP_MEMBERSHIP = "manage-group-membership";
+
+    public static final ResourceType USERS = new ResourceType(USERS_RESOURCE_TYPE, Set.of(MANAGE, VIEW, IMPERSONATE, MAP_ROLES, MANAGE_GROUP_MEMBERSHIP));
 
     public static final AdminPermissionsSchema SCHEMA = new AdminPermissionsSchema();
 
@@ -66,21 +72,29 @@ public class AdminPermissionsSchema extends AuthorizationSchema {
             return null;
         }
 
+        StoreFactory storeFactory = getStoreFactory(session);
+        ResourceStore resourceStore = storeFactory.getResourceStore();
         String name = null;
 
         if (USERS.getType().equals(type)) {
             name = resolveUser(session, id);
+            if (name == null) {
+                Resource resource = resourceStore.findById(resourceServer, id);
+
+                if (resource != null) {
+                    name = resource.getName();
+                }
+            }
         }
 
         if (name == null) {
             throw new IllegalStateException("Could not map resource object with type [" + type + "] and id [" + id + "]");
         }
 
-        StoreFactory storeFactory = getStoreFactory(session);
-        Resource resource = storeFactory.getResourceStore().findByName(resourceServer, name);
+        Resource resource = resourceStore.findByName(resourceServer, name);
 
         if (resource == null) {
-            resource = storeFactory.getResourceStore().create(resourceServer, name, resourceServer.getClientId());
+            resource = resourceStore.create(resourceServer, name, resourceServer.getClientId());
             ScopeStore scopeStore = storeFactory.getScopeStore();
             resource.updateScopes(getResourceTypes().get(type).getScopes().stream().map(scopeName -> {
                 Scope findByName = scopeStore.findByName(resourceServer, scopeName);
@@ -207,6 +221,18 @@ public class AdminPermissionsSchema extends AuthorizationSchema {
         return null;
     }
 
+    // for updates
+    public void removeResource(Resource resource, Policy policy, AuthorizationProvider authorization) {
+        if (getResourceTypes().get(resource.getName()) == null) {
+            List<Policy> policies = authorization.getStoreFactory().getPolicyStore().findByResource(resource.getResourceServer(), resource);
+            // if there is single resource remaining delete it
+            if (policies.size() == 1 && policy.equals(policies.get(0))) {
+                authorization.getStoreFactory().getResourceStore().delete(resource.getId());
+            }
+        }
+    }
+
+    //for deletion
     public void removeOrphanResources(Policy policy, AuthorizationProvider authorization) {
         if (isAdminPermissionClient(authorization.getRealm(), policy.getResourceServer().getId())) {
             Set<Resource> resources = policy.getResources();
@@ -220,5 +246,29 @@ public class AdminPermissionsSchema extends AuthorizationSchema {
                 }
             }
         }
+    }
+
+    public String getResourceName(KeycloakSession session, Policy policy, Resource resource) {
+        ResourceServer resourceServer = policy.getResourceServer();
+
+        if (supportsAuthorizationSchema(session, resourceServer)) {
+            String resourceType = policy.getResourceType();
+
+            if (USERS.getType().equals(resourceType)) {
+                if (resource.getName().equals(USERS_RESOURCE_TYPE)) {
+                    return "All users";
+                }
+
+                UserModel user = session.users().getUserById(session.getContext().getRealm(), resource.getName());
+
+                if (user == null) {
+                    throw new ModelIllegalStateException("User not found for resource [" + resource.getId() + "]");
+                }
+
+                return user.getUsername();
+            }
+        }
+
+        return resource.getDisplayName();
     }
 }

@@ -76,13 +76,11 @@ public class OptionsDistTest {
 
     @Test
     @Order(5)
-    @WithEnvVars({"KC_LOG", "console", "KC_LOG_CONSOLE_COLOR", "true", "KC_LOG_FILE", "something-env", "KC_HTTP_ENABLED", "true", "KC_HOSTNAME_STRICT", "false"})
+    @WithEnvVars({"KC_LOG", "console", "KC_LOG_FILE", "something-env", "KC_HTTP_ENABLED", "true", "KC_HOSTNAME_STRICT", "false"})
     @Launch({"start", "--db=dev-file"})
     public void testSettingEnvVars(CLIResult cliResult) {
         cliResult.assertMessage("The following used run time options are UNAVAILABLE and will be ignored during build time:");
         cliResult.assertMessage("- log-file: Available only when File log handler is activated.");
-        cliResult.assertMessage("quarkus.log.console.color");
-        cliResult.assertMessage("config property is deprecated and should not be used anymore");
     }
 
     @DryRun
@@ -134,7 +132,7 @@ public class OptionsDistTest {
     public void testServerStartDevIfEnabledFileLogOption(LaunchResult result) {
         assertEquals(0, result.getErrorStream().stream().filter(s -> s.contains("Disabled option: '--log-file-output'. Available only when File log handler is activated")).count());
         assertEquals(1, result.getErrorStream().stream().filter(s -> s.contains("Disabled option: '--log-console-color'. Available only when Console log handler is activated")).count());
-        assertEquals(1, result.getErrorStream().stream().filter(s -> s.contains("Possible solutions: --log, --log-file, --log-file-level, --log-file-format, --log-file-output, --log-level")).count());
+        assertEquals(1, result.getErrorStream().stream().filter(s -> s.contains("Possible solutions: --log, --log-file, --log-file-level, --log-file-format, --log-file-json-format, --log-file-output, --log-level, --log-level")).count());
     }
 
     @DryRun

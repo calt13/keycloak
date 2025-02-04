@@ -281,7 +281,7 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     env:
-      MAVEN_OPTS: -Xmx1024m
+      MAVEN_OPTS: -Xmx1536m
     steps:
       - uses: actions/checkout@v4
 
@@ -340,6 +340,9 @@ jobs:
 
       - name: Prepare Quarkus distribution with current JDK
         run: ./mvnw install -e -pl testsuite/integration-arquillian/servers/auth-server/quarkus
+
+      - name: Run new base tests
+        run: ./mvnw test -f tests/pom.xml -Dtest=JDKTestSuite
 
       - name: Run base tests
         run: |
@@ -782,7 +785,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      MAVEN_OPTS: -Xmx1024m
+      MAVEN_OPTS: -Xmx1536m
     steps:
       - uses: actions/checkout@v4
 

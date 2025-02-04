@@ -33,6 +33,8 @@ Cache:
                      The maximum number of entries that can be stored in-memory by the
                        clientSessions cache. Available only when embedded Infinispan clusters
                        configured.
+--cache-embedded-crl-max-count <max-count>
+                     The maximum number of entries that can be stored in-memory by the crl cache.
 --cache-embedded-keys-max-count <max-count>
                      The maximum number of entries that can be stored in-memory by the keys cache.
 --cache-embedded-mtls-enabled <true|false>
@@ -284,6 +286,10 @@ Logging:
                      Include tracing information in the console log. If the 'log-console-format'
                        option is specified, this option has no effect. Default: true. Available
                        only when Console log handler and Tracing is activated.
+--log-console-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when Console log handler is activated and
+                       output is set to 'json'.
 --log-console-level <level>
                      Set the log level for the console handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the
@@ -305,6 +311,10 @@ Logging:
                      Include tracing information in the file log. If the 'log-file-format' option
                        is specified, this option has no effect. Default: true. Available only when
                        File log handler and Tracing is activated.
+--log-file-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when File log handler is activated and
+                       output is set to 'json'.
 --log-file-level <level>
                      Set the log level for the file handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the
@@ -337,6 +347,10 @@ Logging:
                      Include tracing information in the Syslog. If the 'log-syslog-format' option
                        is specified, this option has no effect. Default: true. Available only when
                        Syslog handler and Tracing is activated.
+--log-syslog-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when Syslog is activated and output is set
+                       to 'json'.
 --log-syslog-level <level>
                      Set the log level for the Syslog handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the
