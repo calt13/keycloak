@@ -8,7 +8,7 @@ import org.keycloak.common.VerificationException;
 import org.keycloak.models.IdentityProviderSyncMode;
 import org.keycloak.representations.IDToken;
 import org.keycloak.testsuite.AssertEvents;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 
 import java.util.Map;
 
@@ -45,12 +45,12 @@ public class KcOidcBrokerLogoutFrontChannelTest extends AbstractKcOidcBrokerLogo
 
         // Exchange code from "broker-app" client of "consumer" realm for the tokens
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
-        OAuthClient.AccessTokenResponse response =
+        AccessTokenResponse response =
             oauth
                 .realm(bc.consumerRealmName())
-                .clientId("broker-app")
+                .client("broker-app", "broker-app-secret")
                 .redirectUri(getConsumerRoot() + "/auth/realms/" + REALM_CONS_NAME + "/app")
-                .doAccessTokenRequest(code, "broker-app-secret");
+                .doAccessTokenRequest(code);
         assertEquals(200, response.getStatusCode());
 
         String idTokenString = response.getIdToken();

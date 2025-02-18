@@ -47,10 +47,10 @@ import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.client.resources.TestApplicationResourceUrls;
 import org.keycloak.testsuite.rest.resource.TestingOIDCEndpointsApplicationResource;
 import org.keycloak.testsuite.util.MutualTLSUtils;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientPoliciesBuilder;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientPolicyBuilder;
-import org.keycloak.testsuite.util.OAuthClient.ParResponse;
+import org.keycloak.testsuite.util.oauth.ParResponse;
 
 /**
  * Test for the FAPI 2 specifications (still implementer's draft):
@@ -101,7 +101,7 @@ public class FAPI2Test extends AbstractFAPITest {
         assertEquals(true, client.isConsentRequired());
 
         // send a pushed authorization request
-        oauth.clientId(clientId);
+        oauth.client(clientId);
         String codeVerifier = "1234567890123456789012345678901234567890123"; // 43
         String codeChallenge = generateS256CodeChallenge(codeVerifier);
 
@@ -123,7 +123,7 @@ public class FAPI2Test extends AbstractFAPITest {
 
         // send a token request
         signedJwt = createSignedRequestToken(clientId, Algorithm.PS256);
-        OAuthClient.AccessTokenResponse tokenResponse = doAccessTokenRequestWithClientSignedJWT(code, signedJwt, codeVerifier, () -> MutualTLSUtils.newCloseableHttpClientWithDefaultKeyStoreAndTrustStore());
+        AccessTokenResponse tokenResponse = doAccessTokenRequestWithClientSignedJWT(code, signedJwt, codeVerifier, () -> MutualTLSUtils.newCloseableHttpClientWithDefaultKeyStoreAndTrustStore());
         assertSuccessfulTokenResponse(tokenResponse);
 
         // check HoK required
@@ -158,7 +158,7 @@ public class FAPI2Test extends AbstractFAPITest {
         assertEquals(false, client.isFullScopeAllowed());
         assertEquals(true, client.isConsentRequired());
 
-        oauth.clientId(clientId);
+        oauth.client(clientId);
 
         // without PAR request - should fail
         oauth.openLoginForm();
@@ -216,7 +216,7 @@ public class FAPI2Test extends AbstractFAPITest {
 
         // send a token request
         oauth.codeVerifier(codeVerifier);
-        OAuthClient.AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code, null);
+        AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code);
 
         // check HoK required
         assertSuccessfulTokenResponse(tokenResponse);
@@ -271,7 +271,7 @@ public class FAPI2Test extends AbstractFAPITest {
         assertEquals(Algorithm.PS256, OIDCAdvancedConfigWrapper.fromClientRepresentation(client).getRequestObjectSignatureAlg());
 
         // Set request object and correct responseType
-        oauth.clientId(clientId);
+        oauth.client(clientId);
         oauth.stateParamHardcoded(null);
         String codeVerifier = "1234567890123456789012345678901234567890123"; // 43
         String codeChallenge = generateS256CodeChallenge(codeVerifier);
@@ -300,7 +300,7 @@ public class FAPI2Test extends AbstractFAPITest {
 
         // send a token request
         oauth.codeVerifier(codeVerifier);
-        OAuthClient.AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code, null);
+        AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code);
 
         // check HoK required
         assertSuccessfulTokenResponse(tokenResponse);
@@ -336,7 +336,7 @@ public class FAPI2Test extends AbstractFAPITest {
         assertEquals(false, client.isFullScopeAllowed());
         assertEquals(true, client.isConsentRequired());
 
-        oauth.clientId(clientId);
+        oauth.client(clientId);
         oauth.stateParamHardcoded(null);
         String codeVerifier = "1234567890123456789012345678901234567890123"; // 43
         String codeChallenge = generateS256CodeChallenge(codeVerifier);
@@ -378,7 +378,7 @@ public class FAPI2Test extends AbstractFAPITest {
 
         // send a token request
         signedJwt = createSignedRequestToken(clientId, Algorithm.PS256);
-        OAuthClient.AccessTokenResponse tokenResponse = doAccessTokenRequestWithClientSignedJWT(code, signedJwt, codeVerifier, () -> MutualTLSUtils.newCloseableHttpClientWithDefaultKeyStoreAndTrustStore());
+        AccessTokenResponse tokenResponse = doAccessTokenRequestWithClientSignedJWT(code, signedJwt, codeVerifier, () -> MutualTLSUtils.newCloseableHttpClientWithDefaultKeyStoreAndTrustStore());
         assertSuccessfulTokenResponse(tokenResponse);
  
         // check HoK required

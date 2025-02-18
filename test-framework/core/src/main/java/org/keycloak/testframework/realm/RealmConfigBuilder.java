@@ -72,11 +72,49 @@ public class RealmConfigBuilder {
         return this;
     }
 
+    public RealmConfigBuilder eventsEnabled(boolean enabled) {
+        rep.setEventsEnabled(enabled);
+        return this;
+    }
+
+    public RealmConfigBuilder adminEventsEnabled(boolean enabled) {
+        rep.setAdminEventsEnabled(enabled);
+        return this;
+    }
+
+    public RealmConfigBuilder adminEventsDetailsEnabled(boolean enabled) {
+        rep.setAdminEventsDetailsEnabled(enabled);
+        return this;
+    }
+
+    public RealmConfigBuilder enabledEventTypes(String... enabledEventTypes) {
+        if (rep.getEnabledEventTypes() == null) {
+            rep.setEnabledEventTypes(new LinkedList<>());
+        }
+        rep.getEnabledEventTypes().addAll(List.of(enabledEventTypes));
+        return this;
+    }
+
+    public RealmConfigBuilder overwriteEnabledEventTypes(String... enabledEventTypes) {
+        rep.setEnabledEventTypes(List.of(enabledEventTypes));
+        return this;
+    }
+
     public RealmConfigBuilder eventsListeners(String... eventListeners) {
         if (rep.getEventsListeners() == null) {
             rep.setEventsListeners(new LinkedList<>());
         }
         rep.getEventsListeners().addAll(List.of(eventListeners));
+        return this;
+    }
+
+    public RealmConfigBuilder overwriteEventsListeners(String... eventListeners) {
+        rep.setEventsListeners(List.of(eventListeners));
+        return this;
+    }
+
+    public RealmConfigBuilder eventsExpiration(long eventsExpiration) {
+        rep.setEventsExpiration(eventsExpiration);
         return this;
     }
 

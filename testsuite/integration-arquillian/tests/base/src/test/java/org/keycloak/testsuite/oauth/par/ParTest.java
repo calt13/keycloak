@@ -36,7 +36,6 @@ import java.util.Optional;
 
 import jakarta.ws.rs.core.UriBuilder;
 
-import org.apache.http.client.methods.CloseableHttpResponse;
 import org.junit.Assert;
 import org.junit.Test;
 import org.keycloak.OAuth2Constants;
@@ -69,13 +68,15 @@ import org.keycloak.testsuite.client.resources.TestOIDCEndpointsApplicationResou
 import org.keycloak.testsuite.rest.resource.TestingOIDCEndpointsApplicationResource;
 import org.keycloak.testsuite.services.clientpolicy.executor.TestRaiseExceptionExecutorFactory;
 import org.keycloak.testsuite.util.ClientBuilder;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AbstractHttpResponse;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.AuthorizationEndpointResponse;
 import org.keycloak.testsuite.util.RoleBuilder;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientPoliciesBuilder;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientPolicyBuilder;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientProfileBuilder;
 import org.keycloak.testsuite.util.ClientPoliciesUtil.ClientProfilesBuilder;
-import org.keycloak.testsuite.util.OAuthClient.ParResponse;
+import org.keycloak.testsuite.util.oauth.ParResponse;
 import org.keycloak.util.JsonSerialization;
 
 import static org.keycloak.testsuite.util.ClientPoliciesUtil.createClientRolesConditionConfig;
@@ -154,7 +155,7 @@ public class ParTest extends AbstractClientPoliciesTest {
             assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
 
             // Pushed Authorization Request
-            oauth.clientId(clientId);
+            oauth.client(clientId, clientSecret);
             oauth.redirectUri(CLIENT_REDIRECT_URI);
             ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
             assertEquals(201, pResp.getStatusCode());
@@ -169,14 +170,14 @@ public class ParTest extends AbstractClientPoliciesTest {
             oauth.requestUri(requestUri);
             String state = oauth.stateParamRandom().getState();
             oauth.stateParamHardcoded(state);
-            OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+            AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
             assertEquals(state, loginResponse.getState());
             String code = loginResponse.getCode();
             String sessionId =loginResponse.getSessionState();
 
             // Token Request
             oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-            OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+            AccessTokenResponse res = oauth.doAccessTokenRequest(code);
             assertEquals(200, res.getStatusCode());
 
             AccessToken token = oauth.verifyToken(res.getAccessToken());
@@ -193,7 +194,7 @@ public class ParTest extends AbstractClientPoliciesTest {
             assertEquals(sessionId, refreshToken.getSessionState());
             assertEquals(clientId, refreshToken.getIssuedFor());
 
-            OAuthClient.AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
+            AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
             assertEquals(200, refreshResponse.getStatusCode());
 
             AccessToken refreshedToken = oauth.verifyToken(refreshResponse.getAccessToken());
@@ -233,7 +234,7 @@ public class ParTest extends AbstractClientPoliciesTest {
             assertEquals("none", oidcCRep.getTokenEndpointAuthMethod()); // Public Client
 
             // Pushed Authorization Request
-            oauth.clientId(clientId);
+            oauth.client(clientId, clientSecret);
             oauth.redirectUri(CLIENT_REDIRECT_URI);
             ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
             assertEquals(201, pResp.getStatusCode());
@@ -248,14 +249,14 @@ public class ParTest extends AbstractClientPoliciesTest {
             oauth.requestUri(requestUri);
             String state = oauth.stateParamRandom().getState();
             oauth.stateParamHardcoded(state);
-            OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+            AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
             assertEquals(state, loginResponse.getState());
             String code = loginResponse.getCode();
             String sessionId =loginResponse.getSessionState();
 
             // Token Request
             oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-            OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+            AccessTokenResponse res = oauth.doAccessTokenRequest(code);
             assertEquals(200, res.getStatusCode());
 
             AccessToken token = oauth.verifyToken(res.getAccessToken());
@@ -272,7 +273,7 @@ public class ParTest extends AbstractClientPoliciesTest {
             assertEquals(sessionId, refreshToken.getSessionState());
             assertEquals(clientId, refreshToken.getIssuedFor());
 
-            OAuthClient.AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
+            AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
             assertEquals(200, refreshResponse.getStatusCode());
 
             AccessToken refreshedToken = oauth.verifyToken(refreshResponse.getAccessToken());
@@ -366,13 +367,13 @@ public class ParTest extends AbstractClientPoliciesTest {
                 clientRep.setRedirectUris(new ArrayList<>(Arrays.asList(CLIENT_REDIRECT_URI)));
             });
 
-            oauth.clientId(clientId);
-
             OIDCClientRepresentation oidcCRep = getClientDynamically(clientId);
             String clientSecret = oidcCRep.getClientSecret();
             assertEquals(Boolean.TRUE, oidcCRep.getRequirePushedAuthorizationRequests());
             assertTrue(oidcCRep.getRedirectUris().contains(CLIENT_REDIRECT_URI));
             assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
+
+            oauth.client(clientId, clientSecret);
 
             TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject requestObject = new TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject();
             requestObject.id(KeycloakModelUtils.generateId());
@@ -415,11 +416,11 @@ public class ParTest extends AbstractClientPoliciesTest {
             oauth.responseType(null);
             oauth.request(null);
             oauth.requestUri(requestUri);
-            OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+            AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
 
             // Token Request
             oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-            OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode(), clientSecret);
+            AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode());
             assertEquals(200, res.getStatusCode());
 
             oauth.verifyToken(res.getAccessToken());
@@ -443,13 +444,13 @@ public class ParTest extends AbstractClientPoliciesTest {
                 clientRep.setRedirectUris(new ArrayList<>(Arrays.asList(CLIENT_REDIRECT_URI)));
             });
 
-            oauth.clientId(clientId);
-
             OIDCClientRepresentation oidcCRep = getClientDynamically(clientId);
             String clientSecret = oidcCRep.getClientSecret();
             assertEquals(Boolean.TRUE, oidcCRep.getRequirePushedAuthorizationRequests());
             assertTrue(oidcCRep.getRedirectUris().contains(CLIENT_REDIRECT_URI));
             assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
+
+            oauth.client(clientId, clientSecret);
 
             TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject requestObject = new TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject();
             requestObject.id(KeycloakModelUtils.generateId());
@@ -497,13 +498,13 @@ public class ParTest extends AbstractClientPoliciesTest {
             oauth.requestUri(requestUri);
             String wrongState = oauth.stateParamRandom().getState();
             oauth.stateParamHardcoded(wrongState);
-            OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+            AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
             assertEquals(requestObject.getState(), loginResponse.getState());
             assertNotEquals(requestObject.getState(), wrongState);
 
             // Token Request
             oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-            OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode(), clientSecret);
+            AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode());
             assertEquals(200, res.getStatusCode());
 
             oauth.verifyToken(res.getAccessToken());
@@ -527,13 +528,13 @@ public class ParTest extends AbstractClientPoliciesTest {
                 clientRep.setRedirectUris(new ArrayList<>(Arrays.asList(CLIENT_REDIRECT_URI)));
             });
 
-            oauth.clientId(clientId);
-
             OIDCClientRepresentation oidcCRep = getClientDynamically(clientId);
             String clientSecret = oidcCRep.getClientSecret();
             assertEquals(Boolean.TRUE, oidcCRep.getRequirePushedAuthorizationRequests());
             assertTrue(oidcCRep.getRedirectUris().contains(CLIENT_REDIRECT_URI));
             assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
+
+            oauth.client(clientId, clientSecret);
 
             TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject requestObject = new TestingOIDCEndpointsApplicationResource.AuthorizationEndpointRequestObject();
             requestObject.id(KeycloakModelUtils.generateId());
@@ -579,13 +580,13 @@ public class ParTest extends AbstractClientPoliciesTest {
             oauth.requestUri(requestUri);
             String wrongState = oauth.stateParamRandom().getState();
             oauth.stateParamHardcoded(wrongState);
-            OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+            AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
             assertNull(loginResponse.getState());
             assertNotEquals(requestObject.getState(), wrongState);
 
             // Token Request
             oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-            OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode(), clientSecret);
+            AccessTokenResponse res = oauth.doAccessTokenRequest(loginResponse.getCode());
             assertEquals(200, res.getStatusCode());
 
             oauth.verifyToken(res.getAccessToken());
@@ -611,14 +612,14 @@ public class ParTest extends AbstractClientPoliciesTest {
         assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
 
         // Pushed Authorization Request #1
-        oauth.clientId(clientId);
+        oauth.client(clientId, clientSecret);
         oauth.redirectUri(CLIENT_REDIRECT_URI);
         ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
         assertEquals(201, pResp.getStatusCode());
         String requestUriOne = pResp.getRequestUri();
 
         // Pushed Authorization Request #2
-        oauth.clientId(clientId);
+        oauth.client(clientId, clientSecret);
         oauth.scope("microprofile-jwt" + " " + "profile");
         oauth.redirectUri(CLIENT_REDIRECT_URI);
         pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
@@ -633,14 +634,14 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.requestUri(requestUriTwo);
         String state = oauth.stateParamRandom().getState();
         oauth.stateParamHardcoded(state);
-        OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER2_NAME, TEST_USER2_PASSWORD);
+        AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER2_NAME, TEST_USER2_PASSWORD);
         assertEquals(state, loginResponse.getState());
         String code = loginResponse.getCode();
         String sessionId =loginResponse.getSessionState();
 
         // Token Request #2
         oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         AccessToken token = oauth.verifyToken(res.getAccessToken());
@@ -672,7 +673,7 @@ public class ParTest extends AbstractClientPoliciesTest {
 
         // Token Request #1
         oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        res = oauth.doAccessTokenRequest(code, clientSecret);
+        res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         token = oauth.verifyToken(res.getAccessToken());
@@ -720,7 +721,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         String requestUriOne = pResp.getRequestUri();
 
         // Pushed Authorization Request #2
-        oauth.clientId(client2Id);
+        oauth.client(client2Id, client2Secret);
         oauth.scope("microprofile-jwt" + " " + "profile");
         oauth.redirectUri(CLIENT_REDIRECT_URI);
         pResp = oauth.doPushedAuthorizationRequest(client2Id, client2Secret);
@@ -735,14 +736,14 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.requestUri(requestUriTwo);
         String state = oauth.stateParamRandom().getState();
         oauth.stateParamHardcoded(state);
-        OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER2_NAME, TEST_USER2_PASSWORD);
+        AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER2_NAME, TEST_USER2_PASSWORD);
         assertEquals(state, loginResponse.getState());
         String code = loginResponse.getCode();
         String sessionId =loginResponse.getSessionState();
 
         // Token Request #2
         oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, client2Secret);
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         AccessToken token = oauth.verifyToken(res.getAccessToken());
@@ -761,7 +762,7 @@ public class ParTest extends AbstractClientPoliciesTest {
 
         // Authorization Request with request_uri of PAR #1
         // remove parameters as query strings of uri
-        oauth.clientId(clientId);
+        oauth.client(clientId, clientSecret);
         oauth.redirectUri(null);
         oauth.scope(null);
         oauth.responseType(null);
@@ -775,7 +776,7 @@ public class ParTest extends AbstractClientPoliciesTest {
 
         // Token Request #1
         oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        res = oauth.doAccessTokenRequest(code, clientSecret);
+        res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         token = oauth.verifyToken(res.getAccessToken());
@@ -820,7 +821,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.stateParamHardcoded(state);
         UriBuilder b = UriBuilder.fromUri(oauth.getLoginFormUrl());
         driver.navigate().to(b.build().toURL());
-        OAuthClient.AuthorizationEndpointResponse errorResponse = new OAuthClient.AuthorizationEndpointResponse(oauth);
+        AuthorizationEndpointResponse errorResponse = new AuthorizationEndpointResponse(oauth);
         Assert.assertFalse(errorResponse.isRedirected());
     }
 
@@ -839,7 +840,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, oidcCRep.getTokenEndpointAuthMethod());
 
         // Pushed Authorization Request
-        oauth.clientId(clientId);
+        oauth.client(clientId, clientSecret);
         oauth.redirectUri(CLIENT_REDIRECT_URI);
         ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
         assertEquals(201, pResp.getStatusCode());
@@ -853,13 +854,13 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.requestUri(requestUri);
         String state = oauth.stateParamRandom().getState();
         oauth.stateParamHardcoded(state);
-        OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+        AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
         assertEquals(state, loginResponse.getState());
         String code = loginResponse.getCode();
 
         // Token Request
         oauth.redirectUri(CLIENT_REDIRECT_URI); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         // Authorization Request with request_uri of PAR
@@ -868,7 +869,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.stateParamHardcoded(state);
         UriBuilder b = UriBuilder.fromUri(oauth.getLoginFormUrl());
         driver.navigate().to(b.build().toURL());
-        OAuthClient.AuthorizationEndpointResponse errorResponse = new OAuthClient.AuthorizationEndpointResponse(oauth);
+        AuthorizationEndpointResponse errorResponse = new AuthorizationEndpointResponse(oauth);
         Assert.assertFalse(errorResponse.isRedirected());
     }
 
@@ -916,7 +917,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.stateParamHardcoded(state);
         UriBuilder b = UriBuilder.fromUri(oauth.getLoginFormUrl());
         driver.navigate().to(b.build().toURL());
-        OAuthClient.AuthorizationEndpointResponse errorResponse = new OAuthClient.AuthorizationEndpointResponse(oauth);
+        AuthorizationEndpointResponse errorResponse = new AuthorizationEndpointResponse(oauth);
         Assert.assertFalse(errorResponse.isRedirected());
     }
 
@@ -931,7 +932,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         String clientSecret = oidcCRep.getClientSecret();
         assertEquals(Boolean.TRUE, oidcCRep.getRequirePushedAuthorizationRequests());
 
-        oauth.clientId(clientId);
+        oauth.client(clientId, clientSecret);
         oauth.openLoginForm();
         assertEquals(OAuthErrorException.INVALID_REQUEST, oauth.getCurrentQuery().get(OAuth2Constants.ERROR));
         assertEquals("Pushed Authorization Request is only allowed.", oauth.getCurrentQuery().get(OAuth2Constants.ERROR_DESCRIPTION));
@@ -940,11 +941,11 @@ public class ParTest extends AbstractClientPoliciesTest {
             clientRep.setRequirePushedAuthorizationRequests(Boolean.FALSE);
         });
 
-        OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+        AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
         String code = loginResponse.getCode();
 
         // Token Request
-        OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
     }
 
@@ -981,7 +982,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.stateParamHardcoded(state);
         UriBuilder b = UriBuilder.fromUri(oauth.getLoginFormUrl());
         driver.navigate().to(b.build().toURL());
-        OAuthClient.AuthorizationEndpointResponse errorResponse = new OAuthClient.AuthorizationEndpointResponse(oauth);
+        AuthorizationEndpointResponse errorResponse = new AuthorizationEndpointResponse(oauth);
         Assert.assertFalse(errorResponse.isRedirected());
     }
 
@@ -1166,13 +1167,12 @@ public class ParTest extends AbstractClientPoliciesTest {
             });
 
             // Pushed Authorization Request
-            oauth.clientId(clientId);
+            oauth.client(clientId, clientSecret);
             oauth.redirectUri(VALID_CORS_URL + "/realms/master/app");
             oauth.origin(VALID_CORS_URL);
-            ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret, (CloseableHttpResponse c)->{
-                assertCors(c);
-            });
+            ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
             assertEquals(201, pResp.getStatusCode());
+            assertCors(pResp);
             String requestUri = pResp.getRequestUri();
 
             doNormalAuthzProcess(requestUri, VALID_CORS_URL + "/realms/master/app", clientId, clientSecret);
@@ -1200,13 +1200,12 @@ public class ParTest extends AbstractClientPoliciesTest {
             });
 
             // Pushed Authorization Request
-            oauth.clientId(clientId);
+            oauth.client(clientId, clientSecret);
             oauth.redirectUri(VALID_CORS_URL + "/realms/master/app");
             oauth.origin(INVALID_CORS_URL);
-            ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret, (CloseableHttpResponse c)->{
-                assertNotCors(c);
-            });
+            ParResponse pResp = oauth.doPushedAuthorizationRequest(clientId, clientSecret);
             assertEquals(201, pResp.getStatusCode());
+            assertNotCors(pResp);
             String requestUri = pResp.getRequestUri();
 
             doNormalAuthzProcess(requestUri, VALID_CORS_URL + "/realms/master/app", clientId, clientSecret);
@@ -1271,14 +1270,14 @@ public class ParTest extends AbstractClientPoliciesTest {
         oauth.requestUri(requestUri);
         String state = oauth.stateParamRandom().getState();
         oauth.stateParamHardcoded(state);
-        OAuthClient.AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
+        AuthorizationEndpointResponse loginResponse = oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
         assertEquals(state, loginResponse.getState());
         String code = loginResponse.getCode();
         String sessionId =loginResponse.getSessionState();
 
         // Token Request
         oauth.redirectUri(redirectUrl); // get tokens, it needed. https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
-        OAuthClient.AccessTokenResponse res = oauth.doAccessTokenRequest(code, clientSecret);
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         assertEquals(200, res.getStatusCode());
 
         AccessToken token = oauth.verifyToken(res.getAccessToken());
@@ -1295,7 +1294,7 @@ public class ParTest extends AbstractClientPoliciesTest {
         assertEquals(sessionId, refreshToken.getSessionState());
         assertEquals(clientId, refreshToken.getIssuedFor());
 
-        OAuthClient.AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
+        AccessTokenResponse refreshResponse = oauth.doRefreshTokenRequest(refreshTokenString, clientSecret);
         assertEquals(200, refreshResponse.getStatusCode());
 
         AccessToken refreshedToken = oauth.verifyToken(refreshResponse.getAccessToken());
@@ -1322,16 +1321,16 @@ public class ParTest extends AbstractClientPoliciesTest {
         setParRealmSettings(DEFAULT_REQUEST_URI_LIFESPAN);
     }
 
-    private static void assertCors(CloseableHttpResponse response) {
-        assertEquals("true", response.getHeaders("Access-Control-Allow-Credentials")[0].getValue());
-        assertEquals(VALID_CORS_URL, response.getHeaders("Access-Control-Allow-Origin")[0].getValue());
-        assertEquals("Access-Control-Allow-Methods", response.getHeaders("Access-Control-Expose-Headers")[0].getValue());
+    private static void assertCors(AbstractHttpResponse response) {
+        assertEquals("true", response.getHeader("Access-Control-Allow-Credentials"));
+        assertEquals(VALID_CORS_URL, response.getHeader("Access-Control-Allow-Origin"));
+        assertEquals("Access-Control-Allow-Methods", response.getHeader("Access-Control-Expose-Headers"));
     }
 
-    private static void assertNotCors(CloseableHttpResponse response) {
-        assertEquals(0, response.getHeaders("Access-Control-Allow-Credentials").length);
-        assertEquals(0, response.getHeaders("Access-Control-Allow-Origin").length);
-        assertEquals(0, response.getHeaders("Access-Control-Expose-Headers").length);
+    private static void assertNotCors(AbstractHttpResponse response) {
+        assertNull(response.getHeader("Access-Control-Allow-Credentials"));
+        assertNull(response.getHeader("Access-Control-Allow-Origin"));
+        assertNull(response.getHeader("Access-Control-Expose-Headers"));
     }
 
 }

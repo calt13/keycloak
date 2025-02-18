@@ -7,12 +7,14 @@ import static org.keycloak.quarkus.runtime.configuration.mappers.PropertyMapper.
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 
 import io.quarkus.runtime.configuration.MemorySizeConverter;
+import io.smallrye.config.ConfigValue;
 import org.jboss.logmanager.LogContext;
 import org.keycloak.config.LoggingOptions;
 import org.keycloak.config.Option;
@@ -29,10 +31,13 @@ public final class LoggingPropertyMappers {
     private static final String SYSLOG_ENABLED_MSG = "Syslog is activated";
     private static final String DEFAULT_ROOT_LOG_LEVEL = toLevel(LoggingOptions.LOG_LEVEL.getDefaultValue().orElseThrow().get(0)).getName();
 
+    private static List<CategoryLevel> rootLogLevels;
+
     private LoggingPropertyMappers() {
     }
 
     public static PropertyMapper<?>[] getMappers() {
+        rootLogLevels = null; // reset the cached root log level and categories
         PropertyMapper<?>[] defaultMappers = new PropertyMapper[]{
                 fromOption(LoggingOptions.LOG)
                         .paramLabel("<handler>")
@@ -55,6 +60,11 @@ public final class LoggingPropertyMappers {
                         .to("quarkus.log.console.format")
                         .paramLabel("format")
                         .transformer((value, ctx) -> addTracingInfo(value, LoggingOptions.LOG_CONSOLE_INCLUDE_TRACE))
+                        .build(),
+                fromOption(LoggingOptions.LOG_CONSOLE_JSON_FORMAT)
+                        .isEnabled(LoggingPropertyMappers::isConsoleJsonEnabled, CONSOLE_ENABLED_MSG + " and output is set to 'json'")
+                        .to("quarkus.log.console.json.log-format")
+                        .paramLabel("format")
                         .build(),
                 fromOption(LoggingOptions.LOG_CONSOLE_INCLUDE_TRACE)
                         .isEnabled(() -> LoggingPropertyMappers.isConsoleEnabled() && TracingPropertyMappers.isTracingEnabled(),
@@ -90,6 +100,11 @@ public final class LoggingPropertyMappers {
                         .to("quarkus.log.file.format")
                         .paramLabel("format")
                         .transformer((value, ctx) -> addTracingInfo(value, LoggingOptions.LOG_FILE_INCLUDE_TRACE))
+                        .build(),
+                fromOption(LoggingOptions.LOG_FILE_JSON_FORMAT)
+                        .isEnabled(LoggingPropertyMappers::isFileJsonEnabled, FILE_ENABLED_MSG + " and output is set to 'json'")
+                        .to("quarkus.log.file.json.log-format")
+                        .paramLabel("format")
                         .build(),
                 fromOption(LoggingOptions.LOG_FILE_INCLUDE_TRACE)
                         .isEnabled(() -> LoggingPropertyMappers.isFileEnabled() && TracingPropertyMappers.isTracingEnabled(),
@@ -159,6 +174,11 @@ public final class LoggingPropertyMappers {
                         .paramLabel("format")
                         .transformer((value, ctx) -> addTracingInfo(value, LoggingOptions.LOG_SYSLOG_INCLUDE_TRACE))
                         .build(),
+                fromOption(LoggingOptions.LOG_SYSLOG_JSON_FORMAT)
+                        .isEnabled(LoggingPropertyMappers::isSyslogJsonEnabled, SYSLOG_ENABLED_MSG + " and output is set to 'json'")
+                        .to("quarkus.log.syslog.json.log-format")
+                        .paramLabel("format")
+                        .build(),
                 fromOption(LoggingOptions.LOG_SYSLOG_INCLUDE_TRACE)
                         .isEnabled(() -> LoggingPropertyMappers.isSyslogEnabled() && TracingPropertyMappers.isTracingEnabled(),
                                 "Syslog handler and Tracing is activated")
@@ -178,12 +198,24 @@ public final class LoggingPropertyMappers {
         return isTrue(LoggingOptions.LOG_CONSOLE_ENABLED);
     }
 
+    public static boolean isConsoleJsonEnabled() {
+        return isConsoleEnabled() && Configuration.isTrue("quarkus.log.console.json");
+    }
+
     public static boolean isFileEnabled() {
         return isTrue(LoggingOptions.LOG_FILE_ENABLED);
     }
 
+    public static boolean isFileJsonEnabled() {
+        return isFileEnabled() && Configuration.isTrue("quarkus.log.file.json");
+    }
+
     public static boolean isSyslogEnabled() {
         return isTrue(LoggingOptions.LOG_SYSLOG_ENABLED);
+    }
+
+    public static boolean isSyslogJsonEnabled() {
+        return isSyslogEnabled() && Configuration.isTrue("quarkus.log.syslog.json");
     }
 
     private static BiFunction<String, ConfigSourceInterceptorContext, String> resolveLogHandler(String handler) {
@@ -227,7 +259,7 @@ public final class LoggingPropertyMappers {
     }
 
     private static String resolveRootLogLevel(String value, ConfigSourceInterceptorContext configSourceInterceptorContext) {
-        for (CategoryLevel categoryLevel : parseLogLevels(value)) {
+        for (CategoryLevel categoryLevel : parseRootLogLevel(value)) {
             if (categoryLevel.category == null) {
                 return categoryLevel.levelName;
             }
@@ -236,7 +268,7 @@ public final class LoggingPropertyMappers {
     }
 
     private static Set<String> getConfiguredLogCategories(Set<String> categories) {
-        for (CategoryLevel categoryLevel : parseLogLevels(Configuration.getKcConfigValue("log-level").getValue())) {
+        for (CategoryLevel categoryLevel : parseRootLogLevel(null)) {
             if (categoryLevel.category != null) {
                 categories.add(categoryLevel.category);
             }
@@ -254,24 +286,33 @@ public final class LoggingPropertyMappers {
 
     private static String resolveCategoryLogLevelFromParentLogLevelOption(String category, String parentLogLevelValue, ConfigSourceInterceptorContext context) {
         String rootLevel = DEFAULT_ROOT_LOG_LEVEL;
-        for (CategoryLevel categoryLevel : parseLogLevels(parentLogLevelValue)) {
+        for (CategoryLevel categoryLevel : parseRootLogLevel(parentLogLevelValue)) {
             if (category.equals(categoryLevel.category)) {
                 return categoryLevel.levelName;
             } else if (categoryLevel.category == null) {
                 rootLevel = categoryLevel.levelName;
             }
         }
-        return rootLevel;
+
+        // If KC property is not set and the 'log-level' does not override the specific category, use value from Quarkus or properties files
+        return Optional.ofNullable(context.proceed("quarkus.log.category.\"" + category + "\".level"))
+                .map(ConfigValue::getValue)
+                .map(level -> !level.equals("inherit") ? level : null)
+                .orElse(rootLevel);
     }
 
-    private static List<CategoryLevel> parseLogLevels(String value) {
-        if (value == null) {
-            return List.of();
-        }
+    private static List<CategoryLevel> parseRootLogLevel(String values) {
+        if (rootLogLevels == null) {
+            var value = values != null ? values : Configuration.getConfigValue(LoggingOptions.LOG_LEVEL).getValue();
+            if (value == null) {
+                return List.of(); // if no value is present, we do not cache the result
+            }
 
-        return Stream.of(value.split(","))
-                .map(LoggingPropertyMappers::validateLogLevel)
-                .toList();
+            rootLogLevels = Stream.of(value.split(","))
+                    .map(LoggingPropertyMappers::validateLogLevel)
+                    .toList();
+        }
+        return rootLogLevels;
     }
 
     private static String resolveLogOutput(String value, ConfigSourceInterceptorContext context) {

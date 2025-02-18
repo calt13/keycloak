@@ -71,7 +71,7 @@ import org.keycloak.testsuite.pages.AppPage;
 import org.keycloak.testsuite.util.AccountHelper;
 import org.keycloak.testsuite.util.LDAPRule;
 import org.keycloak.testsuite.util.LDAPTestUtils;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 
 import javax.naming.AuthenticationException;
 import jakarta.ws.rs.core.Response;
@@ -382,7 +382,7 @@ public class LDAPProvidersIntegrationTest extends AbstractLDAPTest {
         loginPage.login(username, password);
         Assert.assertEquals(AppPage.RequestType.AUTH_RESPONSE, appPage.getRequestType());
 
-        OAuthClient.AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(events.poll());
+        AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(events.poll());
         oauth.idTokenHint(tokenResponse.getIdToken()).openLogout();
         events.poll();
     }
@@ -478,11 +478,11 @@ public class LDAPProvidersIntegrationTest extends AbstractLDAPTest {
 
     @Test
     public void loginLdapWithDirectGrant() throws Exception {
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("password", "johnkeycloak", "Password1");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("johnkeycloak", "Password1");
         Assert.assertEquals(200, response.getStatusCode());
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
 
-        response = oauth.doGrantAccessTokenRequest("password", "johnkeycloak", "");
+        response = oauth.doGrantAccessTokenRequest("johnkeycloak", "");
         Assert.assertEquals(401, response.getStatusCode());
     }
 
@@ -540,7 +540,7 @@ public class LDAPProvidersIntegrationTest extends AbstractLDAPTest {
 
         events.expectRegister(username, email).assertEvent();
         EventRepresentation loginEvent = events.expectLogin().user(userId).assertEvent();
-        OAuthClient.AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(loginEvent);
+        AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(loginEvent);
         appPage.logout(tokenResponse.getIdToken());
         events.expectLogout(loginEvent.getSessionId()).user(userId).assertEvent();
 
@@ -591,8 +591,10 @@ public class LDAPProvidersIntegrationTest extends AbstractLDAPTest {
     private void assertPasswordConfiguredThroughLDAPOnly(UserResource user) {
         // Assert password not stored locally
         List<CredentialRepresentation> storedCredentials = user.credentials();
+        assertEquals(1, storedCredentials.size());
         for (CredentialRepresentation credential : storedCredentials) {
-            Assert.assertFalse(PasswordCredentialModel.TYPE.equals(credential.getType()));
+            Assert.assertTrue(PasswordCredentialModel.TYPE.equals(credential.getType()));
+            Assert.assertNotNull(credential.getFederationLink());
         }
 
         // Assert password is stored in the LDAP

@@ -123,6 +123,8 @@ spec:
       secret: something
     service:
       secret: else
+  update:
+    strategy: ForceRecreate
   unsupported:
     podTemplate:
       metadata:

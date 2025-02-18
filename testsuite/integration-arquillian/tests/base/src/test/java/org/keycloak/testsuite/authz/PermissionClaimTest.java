@@ -56,7 +56,7 @@ import org.keycloak.representations.idm.authorization.ResourcePermissionRepresen
 import org.keycloak.representations.idm.authorization.ResourceRepresentation;
 import org.keycloak.representations.idm.authorization.ScopePermissionRepresentation;
 import org.keycloak.testsuite.util.ClientBuilder;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.OAuthClient;
 import org.keycloak.testsuite.util.RealmBuilder;
 import org.keycloak.testsuite.util.RoleBuilder;
 import org.keycloak.testsuite.util.RolesBuilder;
@@ -165,7 +165,7 @@ public class PermissionClaimTest extends AbstractAuthzTest {
 
         request.setResourceId(resource.getName());
 
-        String accessToken = new OAuthClient().realm("authz-test").clientId("test-client").doGrantAccessTokenRequest("secret", "marta", "password").getAccessToken();
+        String accessToken = new OAuthClient().realm("authz-test").client("test-client", "secret").doGrantAccessTokenRequest("marta", "password").getAccessToken();
         AuthzClient authzClient = getAuthzClient();
         String ticket = authzClient.protection().permission().create(request).getTicket();
         AuthorizationResponse response = authzClient.authorization(accessToken).authorize(new AuthorizationRequest(ticket));
@@ -201,7 +201,7 @@ public class PermissionClaimTest extends AbstractAuthzTest {
 
         request.setResourceId(resource.getName());
 
-        String accessToken = new OAuthClient().realm("authz-test").clientId("test-client").doGrantAccessTokenRequest("secret", "marta", "password").getAccessToken();
+        String accessToken = new OAuthClient().realm("authz-test").client("test-client", "secret").doGrantAccessTokenRequest("marta", "password").getAccessToken();
         AuthzClient authzClient = getAuthzClient();
         String ticket = authzClient.protection().permission().forResource(request).getTicket();
         AuthorizationResponse response = authzClient.authorization(accessToken).authorize(new AuthorizationRequest(ticket));

@@ -23,12 +23,16 @@ import java.util.Map;
 
 import org.keycloak.authorization.AdminPermissionsSchema;
 import org.keycloak.authorization.AuthorizationProvider;
+import org.keycloak.authorization.common.DefaultEvaluationContext;
+import org.keycloak.authorization.common.UserModelIdentity;
 import org.keycloak.authorization.model.Policy;
 import org.keycloak.authorization.model.Resource;
 import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.authorization.permission.ResourcePermission;
 import org.keycloak.authorization.policy.evaluation.EvaluationContext;
 import org.keycloak.models.AdminRoles;
+import org.keycloak.models.ClientModel;
+import org.keycloak.models.ImpersonationConstants;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserModel;
 import org.keycloak.representations.idm.authorization.Permission;
@@ -41,45 +45,81 @@ class UserPermissionsV2 extends UserPermissions {
 
     @Override
     public boolean canView(UserModel user) {
-        if (root.hasOneAdminRole(AdminRoles.ADMIN, AdminRoles.MANAGE_USERS, AdminRoles.VIEW_USERS)) {
+        if (root.hasOneAdminRole(AdminRoles.MANAGE_USERS, AdminRoles.VIEW_USERS)) {
             return true;
         }
 
-        boolean result = hasPermission(user, null, MgmtPermissions.VIEW_SCOPE, MgmtPermissions.MANAGE_SCOPE);
+        return hasPermission(user, null, AdminPermissionsSchema.VIEW, AdminPermissionsSchema.MANAGE) || canViewByGroup(user);
+    }
 
-        if (!result) {
-            return canViewByGroup(user);
+    @Override
+    public boolean canView() {
+        if (root.hasOneAdminRole(AdminRoles.MANAGE_USERS, AdminRoles.VIEW_USERS)) {
+            return true;
         }
 
-        return result;
+        return hasPermission((UserModel) null, null, AdminPermissionsSchema.VIEW, AdminPermissionsSchema.MANAGE);
     }
 
     @Override
     public boolean canManage(UserModel user) {
-        if (root.hasOneAdminRole(AdminRoles.ADMIN, AdminRoles.MANAGE_USERS)) {
+        if (root.hasOneAdminRole(AdminRoles.MANAGE_USERS)) {
             return true;
         }
 
-        boolean result = hasPermission(user, null, MgmtPermissions.MANAGE_SCOPE);
+        return hasPermission(user, null, AdminPermissionsSchema.MANAGE) || canManageByGroup(user);
+    }
 
-        if (!result) {
-            return canManageByGroup(user);
+    @Override
+    public boolean canImpersonate(UserModel user, ClientModel requester) {
+        if (root.hasOneAdminRole(ImpersonationConstants.IMPERSONATION_ROLE)) {
+            return true;
         }
 
-        return result;
+        DefaultEvaluationContext context = requester == null ? null :
+                new DefaultEvaluationContext(new UserModelIdentity(root.realm, user), Map.of("kc.client.id", List.of(requester.getClientId())), session);
+
+        return hasPermission(user, context, AdminPermissionsSchema.IMPERSONATE);
     }
-    
+
+    @Override
+    public boolean canMapRoles(UserModel user) {
+        if (root.hasOneAdminRole(AdminRoles.MANAGE_USERS)) {
+            return true;
+        }
+
+        return hasPermission(user, null, AdminPermissionsSchema.MANAGE, AdminPermissionsSchema.MAP_ROLES) || canManageByGroup(user);
+    }
+
+    @Override
+    public boolean canManageGroupMembership(UserModel user) {
+        if (root.hasOneAdminRole(AdminRoles.MANAGE_USERS)) {
+            return true;
+        }
+
+        return hasPermission(user, null, AdminPermissionsSchema.MANAGE, AdminPermissionsSchema.MANAGE_GROUP_MEMBERSHIP) || canManageByGroup(user);
+    }
+
     private boolean hasPermission(UserModel user, EvaluationContext context, String... scopes) {
+        if (!root.isAdminSameRealm()) {
+            return false;
+        }
+
         ResourceServer server = root.realmResourceServer();
 
         if (server == null) {
             return false;
         }
 
-        Resource resource =  resourceStore.findByName(server, user.getId());
+        Resource resource = user == null ? null : resourceStore.findByName(server, user.getId());
 
         if (resource == null) {
-            resource = resourceStore.findByName(server, AdminPermissionsSchema.USERS_RESOURCE_TYPE, server.getId());
+            // check if there is permission for "all-users". If so, load its resource and proceed with evaluation
+            resource = AdminPermissionsSchema.SCHEMA.getResourceTypeResource(session, server, AdminPermissionsSchema.USERS_RESOURCE_TYPE);
+
+            if (policyStore.findByResource(server, resource).isEmpty()) {
+                return false;
+            }
         }
 
         Collection<Permission> permissions = (context == null) ?
@@ -89,14 +129,32 @@ class UserPermissionsV2 extends UserPermissions {
         List<String> expectedScopes = Arrays.asList(scopes);
 
         for (Permission permission : permissions) {
-            for (String scope : permission.getScopes()) {
-                if (expectedScopes.contains(scope)) {
-                    return true;
+            if (permission.getResourceId().equals(resource.getId())) {
+                for (String scope : permission.getScopes()) {
+                    if (expectedScopes.contains(scope)) {
+                        return true;
+                    }
                 }
             }
         }
 
         return false;
+    }
+
+    // todo this method should be removed and replaced by canImpersonate(user, client); once V1 is removed
+    @Override
+    public boolean canClientImpersonate(ClientModel client, UserModel user) {
+        return canImpersonate(user, client);
+    }
+
+    @Override
+    public boolean isImpersonatable(UserModel user, ClientModel requester) {
+        throw new UnsupportedOperationException("Not supported in V2");
+    }
+
+    @Override
+    public boolean isImpersonatable(UserModel user) {
+        throw new UnsupportedOperationException("Not supported in V2");
     }
 
     @Override

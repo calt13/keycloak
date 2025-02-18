@@ -40,7 +40,6 @@ import org.keycloak.common.crypto.CryptoIntegration;
 import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.common.util.SecretGenerator;
 import org.keycloak.common.util.Time;
-import org.keycloak.crypto.Algorithm;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserSessionModel;
@@ -49,8 +48,6 @@ import org.keycloak.protocol.oid4vc.issuance.OID4VCIssuerWellKnownProviderFactor
 import org.keycloak.protocol.oid4vc.issuance.TimeProvider;
 import org.keycloak.protocol.oid4vc.issuance.credentialbuilder.CredentialBuilder;
 import org.keycloak.protocol.oid4vc.issuance.credentialbuilder.JwtCredentialBuilder;
-import org.keycloak.protocol.oid4vc.issuance.signing.JwtSigningService;
-import org.keycloak.protocol.oid4vc.issuance.signing.VerifiableCredentialsSigningService;
 import org.keycloak.protocol.oid4vc.model.CredentialIssuer;
 import org.keycloak.protocol.oid4vc.model.CredentialRequest;
 import org.keycloak.protocol.oid4vc.model.CredentialResponse;
@@ -72,7 +69,8 @@ import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.admin.ApiUtil;
 import org.keycloak.testsuite.runonserver.RunOnServerException;
 import org.keycloak.testsuite.util.AdminClientUtil;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AuthorizationEndpointResponse;
+import org.keycloak.testsuite.util.oauth.OAuthClient;
 import org.keycloak.util.JsonSerialization;
 
 import java.io.IOException;
@@ -107,8 +105,8 @@ public abstract class OID4VCIssuerEndpointTest extends OID4VCTest {
 
 
     protected String getBearerToken(OAuthClient oAuthClient) {
-        OAuthClient.AuthorizationEndpointResponse authorizationEndpointResponse = oAuthClient.doLogin("john", "password");
-        return oAuthClient.doAccessTokenRequest(authorizationEndpointResponse.getCode(), "password").getAccessToken();
+        AuthorizationEndpointResponse authorizationEndpointResponse = oAuthClient.doLogin("john", "password");
+        return oAuthClient.doAccessTokenRequest(authorizationEndpointResponse.getCode()).getAccessToken();
     }
 
     private ClientResource findClientByClientId(RealmResource realm, String clientId) {
@@ -270,32 +268,24 @@ public abstract class OID4VCIssuerEndpointTest extends OID4VCTest {
 
     protected static OID4VCIssuerEndpoint prepareIssuerEndpoint(KeycloakSession session, AppAuthManager.BearerTokenAuthenticator authenticator) {
         JwtCredentialBuilder jwtCredentialBuilder = new JwtCredentialBuilder(
-                TEST_DID.toString(),
-                new StaticTimeProvider(1000));
-
-        JwtSigningService jwtSigningService = new JwtSigningService(
-                session,
-                getKeyFromSession(session).getKid(),
-                Algorithm.RS256);
+            TEST_DID.toString(), 
+            new StaticTimeProvider(1000));
 
         return prepareIssuerEndpoint(
                 session,
                 authenticator,
-                Map.of(jwtCredentialBuilder.getSupportedFormat(), jwtCredentialBuilder),
-                Map.of(jwtSigningService.locator(), jwtSigningService)
+                Map.of(jwtCredentialBuilder.getSupportedFormat(), jwtCredentialBuilder)
         );
     }
 
     protected static OID4VCIssuerEndpoint prepareIssuerEndpoint(
             KeycloakSession session,
             AppAuthManager.BearerTokenAuthenticator authenticator,
-            Map<String, CredentialBuilder> credentialBuilders,
-            Map<String, VerifiableCredentialsSigningService> signingServices
+            Map<String, CredentialBuilder> credentialBuilders
     ) {
         return new OID4VCIssuerEndpoint(
                 session,
                 credentialBuilders,
-                signingServices,
                 authenticator,
                 TIME_PROVIDER,
                 30,
@@ -336,7 +326,6 @@ public abstract class OID4VCIssuerEndpointTest extends OID4VCTest {
         }
 
         testRealm.getComponents().add("org.keycloak.keys.KeyProvider", getKeyProvider());
-        testRealm.getComponents().addAll("org.keycloak.protocol.oid4vc.issuance.signing.VerifiableCredentialsSigningService", getSigningProviders());
         testRealm.getComponents().addAll("org.keycloak.protocol.oid4vc.issuance.credentialbuilder.CredentialBuilder", getCredentialBuilderProviders());
 
         ClientRepresentation clientRepresentation = getTestClient("did:web:test.org");
@@ -379,10 +368,6 @@ public abstract class OID4VCIssuerEndpointTest extends OID4VCTest {
 
     protected ComponentExportRepresentation getKeyProvider() {
         return getRsaKeyProvider(RSA_KEY);
-    }
-
-    protected List<ComponentExportRepresentation> getSigningProviders() {
-        return List.of(getJwtSigningProvider(RSA_KEY));
     }
 
     protected List<ComponentExportRepresentation> getCredentialBuilderProviders() {

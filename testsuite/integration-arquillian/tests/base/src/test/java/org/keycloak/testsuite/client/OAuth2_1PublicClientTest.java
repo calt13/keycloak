@@ -46,7 +46,8 @@ import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 import org.keycloak.testsuite.client.resources.TestApplicationResourceUrls;
 import org.keycloak.testsuite.util.ClientPoliciesUtil;
 import org.keycloak.testsuite.util.Matchers;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.UserInfoResponse;
 import org.keycloak.util.JsonSerialization;
 
 import java.security.KeyPair;
@@ -143,8 +144,8 @@ public class OAuth2_1PublicClientTest extends AbstractFAPITest {
         // setup profiles and policies
         setupPolicyOAuth2_1PublicClientForAllClient();
 
-        oauth.clientId(clientId);
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest(null, TEST_USER_NAME, TEST_USER_PASSWORD, null);
+        oauth.client(clientId);
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest(TEST_USER_NAME, TEST_USER_PASSWORD);
 
         assertEquals(400, response.getStatusCode());
         assertEquals(OAuthErrorException.INVALID_GRANT, response.getError());
@@ -219,39 +220,38 @@ public class OAuth2_1PublicClientTest extends AbstractFAPITest {
 
         // authorization request - success
         setValidPkce(clientId);
-        oauth.clientId(clientId);
+        oauth.client(clientId);
         oauth.redirectUri(validRedirectUri);
         oauth.doLogin(TEST_USER_NAME, TEST_USER_PASSWORD);
 
         // token request with DPoP Proof - success
         JWSHeader jwsEcHeader = new JWSHeader(org.keycloak.jose.jws.Algorithm.ES256, DPOP_JWT_HEADER_TYPE, jwkEc.getKeyId(), jwkEc);
-        String dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getAccessTokenUrl(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
+        String dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getEndpoints().getToken(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
         oauth.dpopProof(dpopProofEcEncoded);
-        OAuthClient.AccessTokenResponse response = oauth.doAccessTokenRequest(code, null);
+        AccessTokenResponse response = oauth.doAccessTokenRequest(code);
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
         oauth.verifyToken(response.getAccessToken());
 
         // token refresh request with DPoP Proof - success
-        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getAccessTokenUrl(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
+        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getEndpoints().getToken(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
         oauth.dpopProof(dpopProofEcEncoded);
-        response = oauth.doRefreshTokenRequest(response.getRefreshToken(), null);
+        response = oauth.doRefreshTokenRequest(response.getRefreshToken());
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
 
         // userinfo request with DPoP Proof - success
-        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.GET, oauth.getUserInfoUrl(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
+        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.GET, oauth.getEndpoints().getUserInfo(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
         oauth.dpopProof(dpopProofEcEncoded);
-        OAuthClient.UserInfoResponse userInfoResponse = oauth.doUserInfoRequestByGet(response);
+        UserInfoResponse userInfoResponse = oauth.doUserInfoRequestByGet(response);
         assertEquals(TEST_USER_NAME, userInfoResponse.getUserInfo().getPreferredUsername());
 
         oauth.idTokenHint(response.getIdToken()).openLogout();
 
         // revoke token with a valid DPoP proof - success
-        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getTokenRevocationUrl(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
+        dpopProofEcEncoded = generateSignedDPoPProof(UUID.randomUUID().toString(), HttpMethod.POST, oauth.getEndpoints().getRevocation(), (long) Time.currentTime(), Algorithm.ES256, jwsEcHeader, ecKeyPair.getPrivate());
         oauth.dpopProof(dpopProofEcEncoded);
-        CloseableHttpResponse closableHttpResponse = oauth.doTokenRevoke(response.getAccessToken(), "access_token", null);
-        assertThat(closableHttpResponse, Matchers.statusCodeIsHC(Response.Status.OK));
-        String introspectionResponse = oauth.introspectAccessTokenWithClientCredential(clientId, null, response.getAccessToken());
+        assertTrue(oauth.doTokenRevoke(response.getAccessToken(), "access_token").isSuccess());
+        String introspectionResponse = oauth.doIntrospectionAccessTokenRequest(response.getAccessToken());
         TokenMetadataRepresentation tokenMetadataRepresentation = JsonSerialization.readValue(introspectionResponse, TokenMetadataRepresentation.class);
         assertFalse(tokenMetadataRepresentation.isActive());
 
@@ -290,7 +290,7 @@ public class OAuth2_1PublicClientTest extends AbstractFAPITest {
     }
 
     private void setValidPkce(String clientId) throws Exception {
-        oauth.clientId(clientId);
+        oauth.client(clientId);
         String codeVerifier = PkceUtils.generateCodeVerifier();
         String codeChallenge = generateS256CodeChallenge(codeVerifier);
         oauth.codeChallenge(codeChallenge);

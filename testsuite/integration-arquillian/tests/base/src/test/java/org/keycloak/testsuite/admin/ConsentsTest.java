@@ -60,9 +60,8 @@ import static org.keycloak.testsuite.admin.ApiUtil.findClientByClientId;
 import static org.keycloak.testsuite.admin.ApiUtil.resetUserPassword;
 
 import org.keycloak.testsuite.util.ClientBuilder;
-import org.keycloak.testsuite.util.OAuthClient;
-import org.keycloak.testsuite.util.OAuthClient.AccessTokenResponse;
-import org.keycloak.testsuite.util.OAuthClient.AuthorizationEndpointResponse;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.AuthorizationEndpointResponse;
 import org.openqa.selenium.By;
 
 /**
@@ -389,10 +388,10 @@ public class ConsentsTest extends AbstractKeycloakTest {
         providerRealm.clients().get(providerAccountRep.getId()).update(providerAccountRep);
 
         log.debug("Obtain offline_token");
-        OAuthClient.AccessTokenResponse response = oauth.realm(providerRealmRep.getRealm())
-                .clientId(providerAccountRep.getClientId())
+        AccessTokenResponse response = oauth.realm(providerRealmRep.getRealm())
+                .client(providerAccountRep.getClientId())
                 .scope(OAuth2Constants.SCOPE_OPENID +" " + OAuth2Constants.SCOPE_PROFILE + " " + OAuth2Constants.OFFLINE_ACCESS)
-                .doGrantAccessTokenRequest(null, getUserLogin(), getUserPassword());
+                .doGrantAccessTokenRequest(getUserLogin(), getUserPassword());
         assertNotNull(response.getRefreshToken());
 
         log.debug("Check for Offline Token in consents");
@@ -438,9 +437,9 @@ public class ConsentsTest extends AbstractKeycloakTest {
 
     @Test
     public void clientConsentRequiredAfterLogin() {
-        oauth.realm(TEST_REALM_NAME).clientId("test-app");
+        oauth.realm(TEST_REALM_NAME).client("test-app", "password");
         AuthorizationEndpointResponse response = oauth.doLogin("test-user@localhost", "password");
-        AccessTokenResponse accessTokenResponse = oauth.doAccessTokenRequest(response.getCode(), "password");
+        AccessTokenResponse accessTokenResponse = oauth.doAccessTokenRequest(response.getCode());
 
         Assert.assertEquals(AppPage.RequestType.AUTH_RESPONSE, appPage.getRequestType());
         Assert.assertNotNull(oauth.getCurrentQuery().get(OAuth2Constants.CODE));

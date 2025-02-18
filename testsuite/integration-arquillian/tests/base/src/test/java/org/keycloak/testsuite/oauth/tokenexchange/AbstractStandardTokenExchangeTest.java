@@ -23,68 +23,35 @@ import jakarta.ws.rs.core.Response.Status;
 import org.junit.Rule;
 import org.junit.Test;
 import org.keycloak.OAuth2Constants;
+import org.keycloak.OAuthErrorException;
 import org.keycloak.TokenVerifier;
 import org.keycloak.admin.client.resource.ClientResource;
 import org.keycloak.admin.client.resource.ClientsResource;
-import org.keycloak.authorization.model.Policy;
-import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.common.Profile;
-import org.keycloak.models.ClientModel;
-import org.keycloak.models.ImpersonationConstants;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.RealmModel;
-import org.keycloak.models.RoleModel;
-import org.keycloak.models.UserCredentialModel;
-import org.keycloak.models.UserModel;
 import org.keycloak.protocol.oidc.OIDCConfigAttributes;
-import org.keycloak.protocol.oidc.OIDCLoginProtocol;
-import org.keycloak.protocol.oidc.mappers.AudienceProtocolMapper;
-import org.keycloak.protocol.oidc.mappers.UserSessionNoteMapper;
 import org.keycloak.representations.AccessToken;
-import org.keycloak.representations.AccessTokenResponse;
 import org.keycloak.representations.idm.ClientRepresentation;
-import org.keycloak.representations.idm.OAuth2ErrorRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
-import org.keycloak.representations.idm.authorization.ClientPolicyRepresentation;
-import org.keycloak.representations.idm.authorization.DecisionStrategy;
-import org.keycloak.services.managers.ClientManager;
-import org.keycloak.services.managers.RealmManager;
-import org.keycloak.services.resources.admin.permissions.AdminPermissionManagement;
-import org.keycloak.services.resources.admin.permissions.AdminPermissions;
 import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.ApiUtil;
-import org.keycloak.testsuite.arquillian.annotation.DisableFeature;
 import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 import org.keycloak.testsuite.arquillian.annotation.UncaughtServerErrorExpected;
-import org.keycloak.testsuite.util.AdminClientUtil;
-import org.keycloak.testsuite.util.OAuthClient;
-import org.keycloak.util.BasicAuthHelper;
-import org.keycloak.util.JsonSerialization;
-
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.client.WebTarget;
-import jakarta.ws.rs.core.Form;
-import jakarta.ws.rs.core.HttpHeaders;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.AuthorizationEndpointResponse;
+import org.keycloak.testsuite.util.oauth.OAuthClient;
 import jakarta.ws.rs.core.Response;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertTrue;
-import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_ID;
-import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_USERNAME;
 import static org.keycloak.testsuite.auth.page.AuthRealm.TEST;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * Tests for standard token exchange. For now, this class provides set of same tests for token-exchange-v1 as well as for token-exchange-v2.
@@ -112,28 +79,44 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         return true;
     }
 
-    @Test
-    @UncaughtServerErrorExpected
-    public void testExchange() throws Exception {
+    protected void setupRealm() {
         testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+    }
 
-        oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+    protected String getInitialAccessTokenForClientExchanger() throws Exception {
+        oauth.client("client-exchanger", "secret");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
         Assert.assertNotNull(token.getSessionId());
         Assert.assertEquals(token.getPreferredUsername(), "user");
         assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
+        return accessToken;
+    }
+
+    protected String getSessionIdFromToken(String accessToken) throws Exception {
+        return TokenVerifier.create(accessToken, AccessToken.class)
+                .parse()
+                .getToken()
+                .getSessionId();
+    }
+
+    @Test
+    @UncaughtServerErrorExpected
+    public void testExchange() throws Exception {
+        setupRealm();
+
+        oauth.realm(TEST);
+        String accessToken = getInitialAccessTokenForClientExchanger();
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
             Assert.assertEquals(OAuth2Constants.REFRESH_TOKEN_TYPE, response.getIssuedTokenType());
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
-            Assert.assertEquals(token.getSessionId(), exchangedToken.getSessionId());
+            Assert.assertEquals(getSessionIdFromToken(accessToken), exchangedToken.getSessionId());
             Assert.assertEquals("client-exchanger", exchangedToken.getIssuedFor());
             Assert.assertEquals("target", exchangedToken.getAudience()[0]);
             Assert.assertEquals(exchangedToken.getPreferredUsername(), "user");
@@ -141,44 +124,37 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         }
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "legal", "secret");
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, "target", "legal", "secret");
             Assert.assertEquals(OAuth2Constants.REFRESH_TOKEN_TYPE, response.getIssuedTokenType());
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
-            Assert.assertEquals(token.getSessionId(), exchangedToken.getSessionId());
+            Assert.assertEquals(getSessionIdFromToken(accessToken), exchangedToken.getSessionId());
             Assert.assertEquals("legal", exchangedToken.getIssuedFor());
             Assert.assertEquals("target", exchangedToken.getAudience()[0]);
             Assert.assertEquals(exchangedToken.getPreferredUsername(), "user");
             assertTrue(exchangedToken.getRealmAccess().isUserInRole("example"));
         }
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "illegal", "secret");
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, "target", "illegal", "secret");
             Assert.assertEquals(403, response.getStatusCode());
         }
     }
 
     @Test
     public void testExchangeRequestAccessTokenType() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
-        String accessToken = response.getAccessToken();
-        TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
-        AccessToken token = accessTokenVerifier.parse().getToken();
-        Assert.assertNotNull(token.getSessionId());
-        Assert.assertEquals(token.getPreferredUsername(), "user");
-        assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
+        String accessToken = getInitialAccessTokenForClientExchanger();
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret", Map.of(OAuth2Constants.REQUESTED_TOKEN_TYPE, OAuth2Constants.ACCESS_TOKEN_TYPE));
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret", Map.of(OAuth2Constants.REQUESTED_TOKEN_TYPE, OAuth2Constants.ACCESS_TOKEN_TYPE));
             Assert.assertEquals(OAuth2Constants.ACCESS_TOKEN_TYPE, response.getIssuedTokenType());
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
-            Assert.assertEquals(token.getSessionId(), exchangedToken.getSessionId());
+            Assert.assertEquals(getSessionIdFromToken(accessToken), exchangedToken.getSessionId());
             Assert.assertEquals("client-exchanger", exchangedToken.getIssuedFor());
             Assert.assertEquals("target", exchangedToken.getAudience()[0]);
             Assert.assertEquals(exchangedToken.getPreferredUsername(), "user");
@@ -189,18 +165,18 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
     @Test
     @UncaughtServerErrorExpected
     public void testExchangeUsingServiceAccount() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("my-service-account");
-        OAuthClient.AccessTokenResponse response = oauth.doClientCredentialsGrantAccessTokenRequest("secret");
+        oauth.client("my-service-account", "secret");
+        AccessTokenResponse response = oauth.doClientCredentialsGrantAccessTokenRequest();
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
         Assert.assertNull(token.getSessionId());
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "my-service-account", "secret");
+            response = oauth.doTokenExchange(accessToken, "target", "my-service-account", "secret");
             Assert.assertEquals(OAuth2Constants.ACCESS_TOKEN_TYPE, response.getIssuedTokenType());
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
@@ -215,31 +191,26 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
     @Test
     @UncaughtServerErrorExpected
     public void testExchangeDifferentScopes() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
-        String accessToken = response.getAccessToken();
-        TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
-        AccessToken token = accessTokenVerifier.parse().getToken();
-        Assert.assertEquals(token.getPreferredUsername(), "user");
-        Assert.assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
+        String accessToken = getInitialAccessTokenForClientExchanger();
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, null, "different-scope-client", "secret");
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, null, "different-scope-client", "secret");
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
             Assert.assertEquals("different-scope-client", exchangedToken.getIssuedFor());
             Assert.assertNull(exchangedToken.getAudience());
             Assert.assertEquals(exchangedToken.getPreferredUsername(), "user");
-            Assert.assertNames(Arrays.asList(exchangedToken.getScope().split(" ")),"profile","openid");
+            String[] expectedScopes = new String[] { "profile", "openid" };
+            Assert.assertNames(Arrays.asList(exchangedToken.getScope().split(" ")), expectedScopes);
             Assert.assertNull(exchangedToken.getEmailVerified());
         }
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "different-scope-client", "secret");
+            AccessTokenResponse response = oauth.doTokenExchange(accessToken, "target", "different-scope-client", "secret");
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
@@ -247,7 +218,8 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
             Assert.assertEquals("target", exchangedToken.getAudience()[0]);
             Assert.assertEquals(exchangedToken.getPreferredUsername(), "user");
             Assert.assertTrue(exchangedToken.getRealmAccess().isUserInRole("example"));
-            Assert.assertNames(Arrays.asList(exchangedToken.getScope().split(" ")),"profile","email","openid");
+            String[] expectedScopes = new String[] { "profile", "email", "openid" };
+            Assert.assertNames(Arrays.asList(exchangedToken.getScope().split(" ")),expectedScopes);
             Assert.assertFalse(exchangedToken.getEmailVerified());
         }
 
@@ -256,12 +228,12 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
     @Test
     @UncaughtServerErrorExpected
     public void testExchangeDifferentScopesWithScopeParameter() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
+        oauth.client("client-exchanger", "secret");
         oauth.scope("openid profile email phone");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
@@ -272,7 +244,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         oauth.scope("openid profile email");
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, null, "different-scope-client", "secret");
+            response = oauth.doTokenExchange(accessToken, null, "different-scope-client", "secret");
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
@@ -284,7 +256,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         }
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "different-scope-client", "secret");
+            response = oauth.doTokenExchange(accessToken, "target", "different-scope-client", "secret");
             String exchangedTokenString = response.getAccessToken();
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
             AccessToken exchangedToken = verifier.parse().getToken();
@@ -301,12 +273,12 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
     @Test
     @UncaughtServerErrorExpected
     public void testExchangeFromPublicClient() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("direct-public");
-        OAuthClient.AuthorizationEndpointResponse authzResponse = oauth.doLogin("user", "password");
-        OAuthClient.AccessTokenResponse response = oauth.doAccessTokenRequest(authzResponse.getCode(), "secret");
+        oauth.client("direct-public", "secret");
+        AuthorizationEndpointResponse authzResponse = oauth.doLogin("user", "password");
+        AccessTokenResponse response = oauth.doAccessTokenRequest(authzResponse.getCode());
 
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
@@ -314,7 +286,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         Assert.assertEquals(token.getPreferredUsername(), "user");
         assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
 
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
         String exchangedTokenString = response.getAccessToken();
         TokenVerifier<AccessToken> verifier = TokenVerifier.create(exchangedTokenString, AccessToken.class);
         AccessToken exchangedToken = verifier.parse().getToken();
@@ -324,35 +296,35 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         assertTrue(exchangedToken.getRealmAccess().isUserInRole("example"));
 
         // can exchange to itself because the client is within the audience of the token issued to the public client
-        response = oauth.doTokenExchange(TEST, accessToken, null, "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, null, "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
 
         // can not exchange to itself because the client is not within the audience of the token issued to the public client
-        response = oauth.doTokenExchange(TEST, accessToken, null, "direct-legal", "secret");
+        response = oauth.doTokenExchange(accessToken, null, "direct-legal", "secret");
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
 
-        response = oauth.doTokenExchange(TEST, accessToken, null, "direct-public", null);
+        response = oauth.doTokenExchange(accessToken, null, "direct-public", null);
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
     }
 
     @Test
     @UncaughtServerErrorExpected
     public void testExchangeNoRefreshToken() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
+        oauth.client("client-exchanger", "secret");
 
         ClientResource client = ApiUtil.findClientByClientId(adminClient.realm(TEST), "no-refresh-token");
         ClientRepresentation clientRepresentation = client.toRepresentation();
         clientRepresentation.getAttributes().put(OIDCConfigAttributes.USE_REFRESH_TOKEN, "false");
         client.update(clientRepresentation);
 
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+            response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
             String exchangedTokenString = response.getAccessToken();
             String refreshTokenString = response.getRefreshToken();
             assertNotNull(exchangedTokenString);
@@ -360,7 +332,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         }
 
         {
-            response = oauth.doTokenExchange(TEST, accessToken, "target", "no-refresh-token", "secret");
+            response = oauth.doTokenExchange(accessToken, "target", "no-refresh-token", "secret");
             String exchangedTokenString = response.getAccessToken();
             String refreshTokenString = response.getRefreshToken();
             assertNotNull(exchangedTokenString);
@@ -372,61 +344,77 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
 
     @Test
     public void testClientExchangeToItself() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
-        String accessToken = response.getAccessToken();
-        TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
-        AccessToken token = accessTokenVerifier.parse().getToken();
-        Assert.assertEquals(token.getPreferredUsername(), "user");
-        assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
+        String accessToken = getInitialAccessTokenForClientExchanger();
 
-        response = oauth.doTokenExchange(TEST, accessToken, null, "client-exchanger", "secret");
+        AccessTokenResponse response = oauth.doTokenExchange(accessToken, null, "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
 
-        response = oauth.doTokenExchange(TEST, accessToken, "client-exchanger", "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, "client-exchanger", "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
     }
 
     @Test
-    public void testClientExchange() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+    public void testClientExchangeToItselfWithConsents() throws Exception {
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("direct-legal");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        String accessToken = getInitialAccessTokenForClientExchanger();
+
+        ClientResource client = ApiUtil.findClientByClientId(adminClient.realm(TEST), "client-exchanger");
+        ClientRepresentation clientRepresentation = client.toRepresentation();
+        clientRepresentation.setConsentRequired(Boolean.TRUE);
+        client.update(clientRepresentation);
+
+        AccessTokenResponse response = oauth.doTokenExchange(accessToken, null, "client-exchanger", "secret");
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatusCode());
+        assertEquals(OAuthErrorException.INVALID_CLIENT, response.getError());
+        assertEquals("Client requires user consent", response.getErrorDescription());
+
+        response = oauth.doTokenExchange(accessToken, "client-exchanger", "client-exchanger", "secret");
+        assertEquals(OAuthErrorException.INVALID_CLIENT, response.getError());
+        assertEquals("Client requires user consent", response.getErrorDescription());
+    }
+
+    @Test
+    public void testClientExchange() throws Exception {
+        setupRealm();
+
+        oauth.realm(TEST);
+        oauth.client("direct-legal", "secret");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
         Assert.assertEquals(token.getPreferredUsername(), "user");
         assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
 
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "direct-legal", "secret");
+        response = oauth.doTokenExchange(accessToken, "target", "direct-legal", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
     }
 
     @Test
     public void testClientExchangeWithMoreAudiencesNotBreak() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("client-exchanger");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        oauth.client("client-exchanger", "secret");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
 
-        response = oauth.doTokenExchange(TEST, accessToken, List.of("target", "client-exchanger"), "client-exchanger", "secret", null);
+        response = oauth.doTokenExchange(accessToken, List.of("target", "client-exchanger"), "client-exchanger", "secret", null);
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
     }
 
     @Test
     public void testPublicClientNotAllowed() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         oauth.realm(TEST);
-        oauth.clientId("direct-legal");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        oauth.client("direct-legal", "secret");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
@@ -435,30 +423,30 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
 
         // public client has no permission to exchange with the client direct-legal to which the token was issued for
         // if not set, the audience is calculated based on the client to which the token was issued for
-        response = oauth.doTokenExchange(TEST, accessToken, null, "direct-public", null);
+        response = oauth.doTokenExchange(accessToken, null, "direct-public", null);
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
         assertEquals("Client is not the holder of the token", response.getErrorDescription());
 
         // public client has no permission to exchange
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "direct-public", null);
+        response = oauth.doTokenExchange(accessToken, "target", "direct-public", null);
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
         assertEquals("Client is not the holder of the token", response.getErrorDescription());
 
-        response = oauth.doTokenExchange(TEST, accessToken, "direct-legal", "direct-public", null);
+        response = oauth.doTokenExchange(accessToken, "direct-legal", "direct-public", null);
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
         assertEquals("Client is not the holder of the token", response.getErrorDescription());
 
         // public client can not exchange a token to itself if the token was issued to another client
-        response = oauth.doTokenExchange(TEST, accessToken, "direct-public", "direct-public", null);
+        response = oauth.doTokenExchange(accessToken, "direct-public", "direct-public", null);
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
         assertEquals("Client is not the holder of the token", response.getErrorDescription());
 
         // client with access to exchange
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
 
         // client must pass the audience because the client has no permission to exchange with the calculated audience (direct-legal)
-        response = oauth.doTokenExchange(TEST, accessToken, null, "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, null, "client-exchanger", "secret");
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatusCode());
         assertEquals("Client is not within the token audience", response.getErrorDescription());
     }
@@ -472,9 +460,9 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
 
     @Test
     public void testSupportedTokenTypesWhenValidatingSubjectToken() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
         oauth.realm(TEST);
-        oauth.clientId("direct-legal");
+        oauth.client("direct-legal", "secret");
         oauth.scope(OAuth2Constants.SCOPE_OPENID);
         ClientsResource clients = adminClient.realm(oauth.getRealm()).clients();
         ClientRepresentation rep = clients.findByClientId(oauth.getClientId()).get(0);
@@ -488,26 +476,26 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         oauth.clientSessionState("client-session");
         oauth.doLogin("user", "password");
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
-        OAuthClient.AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code, "secret");
+        AccessTokenResponse tokenResponse = oauth.doAccessTokenRequest(code);
         String idTokenString = tokenResponse.getIdToken();
-        String logoutUrl = oauth.getLogoutUrl().idTokenHint(idTokenString)
+        String logoutUrl = oauth.getEndpoints().getLogoutBuilder().idTokenHint(idTokenString)
                 .postLogoutRedirectUri(oauth.APP_AUTH_ROOT).build();
         driver.navigate().to(logoutUrl);
         logoutToken = testingClient.testApp().getBackChannelRawLogoutToken();
         Assert.assertNotNull(logoutToken);
-        OAuthClient.AccessTokenResponse response = oauth.doTokenExchange(TEST, logoutToken, "target", "direct-legal", "secret");
+        AccessTokenResponse response = oauth.doTokenExchange(logoutToken, "target", "direct-legal", "secret");
         assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatusCode());
 
     }
 
     @Test
     public void testExchangeForDifferentClient() throws Exception {
-        testingClient.server().run(TokenExchangeTestUtils::setupRealm);
+        setupRealm();
 
         // generate the first token for a public client
         oauth.realm(TEST);
-        oauth.clientId("direct-public");
-        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        oauth.client("direct-public");
+        AccessTokenResponse response = oauth.doGrantAccessTokenRequest("user", "password");
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
@@ -517,7 +505,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         String sid = token.getSessionId();
 
         // perform token exchange with client-exchanger simulating it received the previous token
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
         accessToken = response.getAccessToken();
         accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
@@ -528,7 +516,7 @@ public abstract class AbstractStandardTokenExchangeTest extends AbstractKeycloak
         Assert.assertEquals(sid, token.getSessionId());
 
         // perform a second token exchange just to check everything is OK
-        response = oauth.doTokenExchange(TEST, accessToken, "target", "client-exchanger", "secret");
+        response = oauth.doTokenExchange(accessToken, "target", "client-exchanger", "secret");
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
         accessToken = response.getAccessToken();
         accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);

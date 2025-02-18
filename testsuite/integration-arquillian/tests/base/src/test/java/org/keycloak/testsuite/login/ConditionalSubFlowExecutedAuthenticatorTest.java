@@ -40,7 +40,7 @@ import org.keycloak.testsuite.auth.page.login.OneTimeCode;
 import org.keycloak.testsuite.pages.ErrorPage;
 import org.keycloak.testsuite.pages.LoginPage;
 import org.keycloak.testsuite.pages.LoginTotpPage;
-import org.keycloak.testsuite.util.OAuthClient.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 
 /**
  * <p>Test for the ConditionalSubFlowExecutedAuthenticator. A <em>test</em> parent
@@ -167,7 +167,7 @@ public class ConditionalSubFlowExecutedAuthenticatorTest extends AbstractTestRea
     private void checkAllowed(String username) {
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
         Assert.assertNotNull(code);
-        AccessTokenResponse res = oauth.doAccessTokenRequest(code, "password");
+        AccessTokenResponse res = oauth.doAccessTokenRequest(code);
         Assert.assertNull(res.getError());
         Assert.assertNotNull(res.getAccessToken());
 

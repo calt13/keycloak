@@ -38,7 +38,7 @@ import {
 } from "@patternfly/react-table";
 import CodeEditor from "@uiw/react-textarea-code-editor";
 import { pickBy } from "lodash-es";
-import { PropsWithChildren, useMemo, useState } from "react";
+import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useAdminClient } from "../admin-client";
@@ -176,6 +176,11 @@ export const AdminEvents = ({ resourcePath }: AdminEventsProps) => {
     [],
   );
 
+  useEffect(() => {
+    const timer = setInterval(() => setKey((key) => key + 1), 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   function loader(first?: number, max?: number) {
     return adminClient.realms.findAdminEvents({
       // The admin client wants 'dateFrom' and 'dateTo' to be Date objects, however it cannot actually handle them so we need to cast to any.
@@ -279,12 +284,9 @@ export const AdminEvents = ({ resourcePath }: AdminEventsProps) => {
           data-testid="representation-dialog"
           onClose={() => setRepresentationEvent(undefined)}
         >
-          <CodeEditor
-            readOnly
-            value={code}
-            language="json"
-            style={{ height: "8rem", overflow: "scroll" }}
-          />
+          <div style={{ height: "8rem", overflow: "scroll" }}>
+            <CodeEditor readOnly value={code} language="json" />
+          </div>
         </DisplayDialog>
       )}
       {!adminEventsEnabled && <EventsBanners type="adminEvents" />}

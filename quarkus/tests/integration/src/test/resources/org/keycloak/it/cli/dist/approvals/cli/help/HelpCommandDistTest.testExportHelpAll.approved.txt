@@ -89,6 +89,14 @@ Management:
                      The file path to a private key in PEM format for the management server. If not
                        given, the value is inherited from HTTP options. Relevant only when
                        something is exposed on the management interface - see the guide for details.
+--https-management-certificates-reload-period <reload period>
+                     Interval on which to reload key store, trust store, and certificate files
+                       referenced by https-management-* options for the management server. May be a
+                       java.time.Duration value, an integer number of seconds, or an integer
+                       followed by one of [ms, h, m, s, d]. Must be greater than 30 seconds. Use -1
+                       to disable. If not given, the value is inherited from HTTP options. Relevant
+                       only when something is exposed on the management interface - see the guide
+                       for details. Default: 1h.
 --https-management-client-auth <auth>
                      Configures the management interface to require/request client authentication.
                        If not given, the value is inherited from HTTP options. Relevant only when
@@ -133,6 +141,10 @@ Logging:
                      Include tracing information in the console log. If the 'log-console-format'
                        option is specified, this option has no effect. Default: true. Available
                        only when Console log handler and Tracing is activated.
+--log-console-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when Console log handler is activated and
+                       output is set to 'json'.
 --log-console-level <level>
                      Set the log level for the console handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the
@@ -154,6 +166,10 @@ Logging:
                      Include tracing information in the file log. If the 'log-file-format' option
                        is specified, this option has no effect. Default: true. Available only when
                        File log handler and Tracing is activated.
+--log-file-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when File log handler is activated and
+                       output is set to 'json'.
 --log-file-level <level>
                      Set the log level for the file handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the
@@ -186,6 +202,10 @@ Logging:
                      Include tracing information in the Syslog. If the 'log-syslog-format' option
                        is specified, this option has no effect. Default: true. Available only when
                        Syslog handler and Tracing is activated.
+--log-syslog-json-format <format>
+                     Set the format of the produced JSON. Possible values are: default, ecs.
+                       Default: default. Available only when Syslog is activated and output is set
+                       to 'json'.
 --log-syslog-level <level>
                      Set the log level for the Syslog handler. It specifies the most verbose log
                        level for logs shown in the output. It respects levels specified in the

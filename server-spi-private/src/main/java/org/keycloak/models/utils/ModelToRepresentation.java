@@ -173,10 +173,6 @@ public class ModelToRepresentation {
         return rep;
     }
 
-    public static Stream<GroupModel> searchGroupModelsByAttributes(KeycloakSession session, RealmModel realm, Map<String,String> attributes, Integer first, Integer max) {
-        return session.groups().searchGroupsByAttributes(realm, attributes, first, max);
-    }
-
     @Deprecated
     public static Stream<GroupRepresentation> toGroupHierarchy(KeycloakSession session, RealmModel realm, boolean full) {
         return session.groups().getTopLevelGroupsStream(realm, null, null)
@@ -671,6 +667,7 @@ public class ModelToRepresentation {
         rep.setCreatedDate(cred.getCreatedDate());
         rep.setSecretData(cred.getSecretData());
         rep.setCredentialData(cred.getCredentialData());
+        rep.setFederationLink(cred.getFederationLink());
         return rep;
     }
 
@@ -1317,15 +1314,10 @@ public class ModelToRepresentation {
     }
 
     public static OrganizationRepresentation toRepresentation(OrganizationModel model) {
-        OrganizationRepresentation rep = toBriefRepresentation(model,false);
-        if (rep == null) {
-            return null;
-        }
-        rep.setAttributes(model.getAttributes());
-        return rep;
+        return toRepresentation(model, true);
     }
 
-    public static OrganizationRepresentation toBriefRepresentation(OrganizationModel model, Boolean briefRepresentation) {
+    public static OrganizationRepresentation toRepresentation(OrganizationModel model, boolean briefRepresentation) {
         if (model == null) {
             return null;
         }
@@ -1333,7 +1325,7 @@ public class ModelToRepresentation {
         rep.setId(model.getId());
         rep.setName(model.getName());
         rep.setAlias(model.getAlias());
-        if (briefRepresentation) {
+        if (!briefRepresentation) {
             rep.setAttributes(model.getAttributes());
         }
         rep.setEnabled(model.isEnabled());

@@ -53,13 +53,12 @@ import org.keycloak.testsuite.updaters.RealmAttributeUpdater;
 import org.keycloak.testsuite.util.FlowUtil;
 import org.keycloak.testsuite.util.GreenMailRule;
 import org.keycloak.testsuite.util.MailUtils;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 import org.keycloak.testsuite.util.UserBuilder;
 import org.keycloak.testsuite.util.AccountHelper;
 
 import jakarta.mail.internet.MimeMessage;
 import jakarta.ws.rs.core.Response;
-import org.keycloak.testsuite.util.WaitUtils;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -581,6 +580,12 @@ public class RegisterTest extends AbstractTestRealmKeycloakTest {
             assertTrue(registerPage.isCurrent());
             assertEquals("Invalid password: must not be equal to the username.", registerPage.getInputPasswordErrors().getPasswordError());
 
+            // Case-sensitivity - still should not allow to create password when lower-cased
+            registerPage.register("firstName", "lastName", "registerUserNotUsername@email", "registerUserNotUsername", "registerusernotusername", "registerusernotusername");
+
+            assertTrue(registerPage.isCurrent());
+            assertEquals("Invalid password: must not be equal to the username.", registerPage.getInputPasswordErrors().getPasswordError());
+
             try (Response response = adminClient.realm("test").users().create(UserBuilder.create().username("registerUserNotUsername").build())) {
                 assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
             }
@@ -616,6 +621,12 @@ public class RegisterTest extends AbstractTestRealmKeycloakTest {
             assertTrue(registerPage.isCurrent());
             assertEquals("Invalid password: Can not contain the username.", registerPage.getInputPasswordErrors().getPasswordError());
 
+            // Case-sensitivity - still should not allow to create password when lower-cased
+            registerPage.register("firstName", "lastName", "registerUserNotUsername@email", "Bob", "123bob", "123bob");
+
+            assertTrue(registerPage.isCurrent());
+            assertEquals("Invalid password: Can not contain the username.", registerPage.getInputPasswordErrors().getPasswordError());
+
             try (Response response = adminClient.realm("test").users().create(UserBuilder.create().username("Bob").build())) {
                 assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
             }
@@ -646,6 +657,12 @@ public class RegisterTest extends AbstractTestRealmKeycloakTest {
             registerPage.assertCurrent();
 
             registerPage.registerWithEmailAsUsername("firstName", "lastName", "registerUserNotEmail@email", "registerUserNotEmail@email", "registerUserNotEmail@email");
+
+            assertTrue(registerPage.isCurrent());
+            assertEquals("Invalid password: must not be equal to the email.", registerPage.getInputPasswordErrors().getPasswordError());
+
+            // Case-sensitivity - still should not allow to create password when lower-cased
+            registerPage.registerWithEmailAsUsername("firstName", "lastName", "registerUserNotEmail@email", "registerusernotemail@email", "registerusernotemail@email");
 
             assertTrue(registerPage.isCurrent());
             assertEquals("Invalid password: must not be equal to the email.", registerPage.getInputPasswordErrors().getPasswordError());
@@ -918,7 +935,7 @@ public class RegisterTest extends AbstractTestRealmKeycloakTest {
                 .detail("username", EMAIL_OR_USERNAME.toLowerCase())
                 .user(userId)
                 .assertEvent();
-        OAuthClient.AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(loginEvent);
+        AccessTokenResponse tokenResponse = sendTokenRequestAndGetResponse(loginEvent);
         oauth.idTokenHint(tokenResponse.getIdToken());
         assertUserBasicRegisterAttributes(userId, emailAsUsername ? null : USERNAME, EMAIL, "firstName", "lastName");
 

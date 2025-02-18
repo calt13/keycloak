@@ -72,7 +72,6 @@ import org.keycloak.services.managers.AuthenticationSessionManager;
 import org.keycloak.services.managers.BruteForceProtector;
 import org.keycloak.services.managers.UserSessionManager;
 import org.keycloak.services.resources.IdentityBrokerService;
-import org.keycloak.services.resources.admin.AdminAuth;
 import org.keycloak.services.resources.admin.permissions.AdminPermissions;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.sessions.AuthenticationSessionModel;
@@ -81,8 +80,6 @@ import org.keycloak.util.TokenUtil;
 
 import static org.keycloak.authentication.authenticators.util.AuthenticatorUtils.getDisabledByBruteForceEventError;
 import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_CLIENT;
-import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_ID;
-import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_USERNAME;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -107,17 +104,17 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
 
     private static final Logger logger = Logger.getLogger(AbstractTokenExchangeProvider.class);
 
-    private TokenExchangeContext.Params params;
-    private MultivaluedMap<String, String> formParams;
-    private KeycloakSession session;
-    private Cors cors;
-    private RealmModel realm;
-    private ClientModel client;
-    private EventBuilder event;
-    private ClientConnection clientConnection;
-    private HttpHeaders headers;
-    private TokenManager tokenManager;
-    private Map<String, String> clientAuthAttributes;
+    protected TokenExchangeContext.Params params;
+    protected MultivaluedMap<String, String> formParams;
+    protected KeycloakSession session;
+    protected Cors cors;
+    protected RealmModel realm;
+    protected ClientModel client;
+    protected EventBuilder event;
+    protected ClientConnection clientConnection;
+    protected HttpHeaders headers;
+    protected TokenManager tokenManager;
+    protected Map<String, String> clientAuthAttributes;
     protected TokenExchangeContext context;
 
     @Override
@@ -209,8 +206,7 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
 
     }
 
-    protected Response exchangeClientToClient(UserModel targetUser, UserSessionModel targetUserSession,
-            AccessToken token, boolean disallowOnHolderOfTokenMismatch) {
+    protected String getRequestedTokenType() {
         String requestedTokenType = formParams.getFirst(OAuth2Constants.REQUESTED_TOKEN_TYPE);
         if (requestedTokenType == null) {
             requestedTokenType = OAuth2Constants.REFRESH_TOKEN_TYPE;
@@ -220,13 +216,13 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
             event.detail(Details.REASON, "requested_token_type unsupported");
             event.error(Errors.INVALID_REQUEST);
             throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "requested_token_type unsupported", Response.Status.BAD_REQUEST);
-
         }
+        return requestedTokenType;
+    }
 
+    protected List<ClientModel> getTargetAudienceClients() {
         List<String> audienceParams = params.getAudience();
-        ClientModel tokenHolder = token == null ? null : realm.getClientByClientId(token.getIssuedFor());
         List<ClientModel> targetAudienceClients = new ArrayList<>();
-
         if (audienceParams != null) {
             for (String audience : audienceParams) {
                 ClientModel targetClient = realm.getClientByClientId(audience);
@@ -240,7 +236,10 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
                 }
             }
         }
-
+        // Assume client itself is audience in case audience parameter not provided
+        if (targetAudienceClients.isEmpty()) {
+            targetAudienceClients.add(client);
+        }
         for (ClientModel targetClient : targetAudienceClients) {
             if (targetClient.isConsentRequired()) {
                 event.detail(Details.REASON, "audience requires consent");
@@ -255,13 +254,11 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
                 throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_CLIENT, "Client disabled", Response.Status.BAD_REQUEST);
             }
         }
+        return targetAudienceClients;
+    }
 
-
-        // Assume client itself is audience in case audience parameter not provided
-        if (targetAudienceClients.isEmpty()) {
-            targetAudienceClients.add(client);
-        }
-
+    protected void validateAudience(AccessToken token, boolean disallowOnHolderOfTokenMismatch, List<ClientModel> targetAudienceClients) {
+        ClientModel tokenHolder = token == null ? null : realm.getClientByClientId(token.getIssuedFor());
         for (ClientModel targetClient : targetAudienceClients) {
             boolean isClientTheAudience = targetClient.equals(client);
             if (isClientTheAudience) {
@@ -285,7 +282,58 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
                 }
             }
         }
+    }
 
+    protected Response exchangeClientToClient(UserModel targetUser, UserSessionModel targetUserSession,
+            AccessToken token, boolean disallowOnHolderOfTokenMismatch) {
+
+        String requestedTokenType = getRequestedTokenType();
+        List<ClientModel> targetAudienceClients = getTargetAudienceClients();
+        validateAudience(token, disallowOnHolderOfTokenMismatch, targetAudienceClients);
+        String scope = getRequestedScope(token, targetAudienceClients);
+
+        try {
+            setClientToContext(targetAudienceClients);
+            switch (requestedTokenType) {
+                case OAuth2Constants.ACCESS_TOKEN_TYPE:
+                case OAuth2Constants.REFRESH_TOKEN_TYPE:
+                    return exchangeClientToOIDCClient(targetUser, targetUserSession, requestedTokenType, targetAudienceClients, scope);
+                case OAuth2Constants.SAML2_TOKEN_TYPE:
+                    return exchangeClientToSAML2Client(targetUser, targetUserSession, requestedTokenType, targetAudienceClients);
+            }
+        } finally {
+            session.getContext().setClient(client);
+        }
+
+        throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "requested_token_type unsupported", Response.Status.BAD_REQUEST);
+    }
+
+    protected void forbiddenIfClientIsNotWithinTokenAudience(AccessToken token, ClientModel tokenHolder) {
+        if (token != null && !token.hasAudience(client.getClientId())) {
+            event.detail(Details.REASON, "client is not within the token audience");
+            event.error(Errors.NOT_ALLOWED);
+            throw new CorsErrorResponseException(cors, OAuthErrorException.ACCESS_DENIED, "Client is not within the token audience", Response.Status.FORBIDDEN);
+        }
+    }
+
+    protected void forbiddenIfClientIsNotTokenHolder(boolean disallowOnHolderOfTokenMismatch, ClientModel tokenHolder) {
+        if (disallowOnHolderOfTokenMismatch && !client.equals(tokenHolder)) {
+            event.detail(Details.REASON, "client is not the token holder");
+            event.error(Errors.NOT_ALLOWED);
+            throw new CorsErrorResponseException(cors, OAuthErrorException.ACCESS_DENIED, "Client is not the holder of the token", Response.Status.FORBIDDEN);
+        }
+    }
+
+    protected AuthenticationSessionModel createSessionModel(UserSessionModel targetUserSession, RootAuthenticationSessionModel rootAuthSession, UserModel targetUser, ClientModel client, String scope) {
+        AuthenticationSessionModel authSession = rootAuthSession.createAuthenticationSession(client);
+        authSession.setAuthenticatedUser(targetUser);
+        authSession.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
+        authSession.setClientNote(OIDCLoginProtocol.ISSUER, Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
+        authSession.setClientNote(OIDCLoginProtocol.SCOPE_PARAM, scope);
+        return authSession;
+    }
+
+    protected String getRequestedScope(AccessToken token, List<ClientModel> targetAudienceClients) {
         ClientModel targetClient = targetAudienceClients.get(0);
         // TODO Remove once more audiences are properly supported
         if (targetAudienceClients.size() > 1) {
@@ -317,50 +365,22 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
             //from return scope remove scopes that are not default or optional scopes for targetClient
             scope = Arrays.stream(scope.split(" ")).filter(s -> "openid".equals(s) || (targetClientScopes.contains(Profile.isFeatureEnabled(Profile.Feature.DYNAMIC_SCOPES) ? s.split(":")[0] : s))).collect(Collectors.joining(" "));
         }
-
-        try {
-            session.getContext().setClient(targetClient);
-            switch (requestedTokenType) {
-                case OAuth2Constants.ACCESS_TOKEN_TYPE:
-                case OAuth2Constants.REFRESH_TOKEN_TYPE:
-                    return exchangeClientToOIDCClient(targetUser, targetUserSession, requestedTokenType, targetClient, scope);
-                case OAuth2Constants.SAML2_TOKEN_TYPE:
-                    return exchangeClientToSAML2Client(targetUser, targetUserSession, requestedTokenType, targetClient);
-            }
-        } finally {
-            session.getContext().setClient(client);
-        }
-
-        throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "requested_token_type unsupported", Response.Status.BAD_REQUEST);
+        return scope;
     }
 
-    private void forbiddenIfClientIsNotWithinTokenAudience(AccessToken token, ClientModel tokenHolder) {
-        if (token != null && !token.hasAudience(client.getClientId())) {
-            event.detail(Details.REASON, "client is not within the token audience");
-            event.error(Errors.NOT_ALLOWED);
-            throw new CorsErrorResponseException(cors, OAuthErrorException.ACCESS_DENIED, "Client is not within the token audience", Response.Status.FORBIDDEN);
-        }
+    protected void setClientToContext(List<ClientModel> targetAudienceClients) {
+        ClientModel targetClient = getTargetClient(targetAudienceClients);
+        session.getContext().setClient(targetClient);
     }
 
-    private void forbiddenIfClientIsNotTokenHolder(boolean disallowOnHolderOfTokenMismatch, ClientModel tokenHolder) {
-        if (disallowOnHolderOfTokenMismatch && !client.equals(tokenHolder)) {
-            event.detail(Details.REASON, "client is not the token holder");
-            event.error(Errors.NOT_ALLOWED);
-            throw new CorsErrorResponseException(cors, OAuthErrorException.ACCESS_DENIED, "Client is not the holder of the token", Response.Status.FORBIDDEN);
-        }
-    }
-
-    private AuthenticationSessionModel createSessionModel(UserSessionModel targetUserSession, RootAuthenticationSessionModel rootAuthSession, UserModel targetUser, ClientModel client, String scope) {
-        AuthenticationSessionModel authSession = rootAuthSession.createAuthenticationSession(client);
-        authSession.setAuthenticatedUser(targetUser);
-        authSession.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
-        authSession.setClientNote(OIDCLoginProtocol.ISSUER, Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
-        authSession.setClientNote(OIDCLoginProtocol.SCOPE_PARAM, scope);
-        return authSession;
+    protected ClientModel getTargetClient(List<ClientModel> targetAudienceClients) {
+        // Make just first client into consideration TODO: Move this method to V1 only as V2 will properly support more audiences
+        return targetAudienceClients.get(0);
     }
 
     protected Response exchangeClientToOIDCClient(UserModel targetUser, UserSessionModel targetUserSession, String requestedTokenType,
-                                                  ClientModel targetClient, String scope) {
+                                                  List<ClientModel> targetAudienceClients, String scope) {
+        ClientModel targetClient = getTargetClient(targetAudienceClients);
         RootAuthenticationSessionModel rootAuthSession = new AuthenticationSessionManager(session).createAuthenticationSession(realm, false);
         AuthenticationSessionModel authSession = createSessionModel(targetUserSession, rootAuthSession, targetUser, targetClient, scope);
 
@@ -427,7 +447,9 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
         return cors.add(Response.ok(res, MediaType.APPLICATION_JSON_TYPE));
     }
 
-    protected Response exchangeClientToSAML2Client(UserModel targetUser, UserSessionModel targetUserSession, String requestedTokenType, ClientModel targetClient) {
+    protected Response exchangeClientToSAML2Client(UserModel targetUser, UserSessionModel targetUserSession, String requestedTokenType, List<ClientModel> targetAudienceClients) {
+        ClientModel targetClient = getTargetClient(targetAudienceClients);
+
         // Create authSession with target SAML 2.0 client and authenticated user
         LoginProtocolFactory factory = (LoginProtocolFactory) session.getKeycloakSessionFactory()
                 .getProviderFactory(LoginProtocol.class, SamlProtocol.LOGIN_PROTOCOL);
@@ -631,7 +653,7 @@ public abstract class AbstractTokenExchangeProvider implements TokenExchangeProv
     }
 
     // TODO: move to utility class
-    private void updateUserSessionFromClientAuth(UserSessionModel userSession) {
+    protected void updateUserSessionFromClientAuth(UserSessionModel userSession) {
         for (Map.Entry<String, String> attr : clientAuthAttributes.entrySet()) {
             userSession.setNote(attr.getKey(), attr.getValue());
         }

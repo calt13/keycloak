@@ -29,7 +29,8 @@ import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.AssertEvents;
 import static org.keycloak.testsuite.admin.AbstractAdminTest.loadJson;
 import static org.keycloak.testsuite.admin.ApiUtil.findUserByUsername;
-import org.keycloak.testsuite.util.OAuthClient;
+
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
 import org.openqa.selenium.By;
 
 /**
@@ -47,7 +48,7 @@ public class AccessTokenDuplicateEmailsNotCleanedUpTest extends AbstractKeycloak
 
     @Before
     public void clientConfiguration() {
-        oauth.clientId("test-app");
+        oauth.client("test-app", "password");
         oauth.realm("test-duplicate-emails");
 
         RealmRepresentation realmRep = new RealmRepresentation();
@@ -67,7 +68,7 @@ public class AccessTokenDuplicateEmailsNotCleanedUpTest extends AbstractKeycloak
         oauth.doLogin("non-duplicate-email-user@localhost", "password");
 
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
-        OAuthClient.AccessTokenResponse response = oauth.doAccessTokenRequest(code, "password");
+        AccessTokenResponse response = oauth.doAccessTokenRequest(code);
 
         assertEquals(200, response.getStatusCode());
         
@@ -88,7 +89,7 @@ public class AccessTokenDuplicateEmailsNotCleanedUpTest extends AbstractKeycloak
         oauth.doLogin("duplicate-email-user1", "password");
 
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
-        OAuthClient.AccessTokenResponse response = oauth.doAccessTokenRequest(code, "password");
+        AccessTokenResponse response = oauth.doAccessTokenRequest(code);
 
         assertEquals(200, response.getStatusCode());
         

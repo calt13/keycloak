@@ -62,7 +62,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
 import org.keycloak.operator.Constants;
+import org.keycloak.operator.controllers.KeycloakController;
 import org.keycloak.operator.controllers.KeycloakDeploymentDependentResource;
+import org.keycloak.operator.controllers.KeycloakRealmImportController;
+import org.keycloak.operator.controllers.KeycloakUpdateJobDependentResource;
 import org.keycloak.operator.crds.v2alpha1.deployment.Keycloak;
 import org.keycloak.operator.crds.v2alpha1.deployment.KeycloakSpecBuilder;
 import org.keycloak.operator.crds.v2alpha1.deployment.KeycloakStatus;
@@ -86,7 +89,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -214,24 +216,6 @@ public class BaseOperatorTest implements QuarkusTestAfterEachCallback {
         public KubernetesClient getKubernetesClient() {
             return k8sclient;
         }
-
-        @Override
-        public DependentResourceFactory dependentResourceFactory() {
-            return new DependentResourceFactory<ControllerConfiguration<?>>() {
-                @Override
-                public DependentResource createFrom(DependentResourceSpec spec,
-                        ControllerConfiguration<?> configuration) {
-                    final var dependentResourceClass = spec.getDependentResourceClass();
-                    // workaround for https://github.com/operator-framework/java-operator-sdk/issues/2010
-                    // create a fresh instance of the dependentresource
-                    CDI.current().destroy(CDI.current().select(dependentResourceClass).get());
-                    DependentResource instance = (DependentResource) CDI.current().select(dependentResourceClass).get();
-                    var context = Utils.contextFor(configuration, dependentResourceClass, Dependent.class);
-                    DependentResourceConfigurationResolver.configure(instance, spec, configuration);
-                    return instance;
-                }
-            };
-        }
     });
   }
 
@@ -298,37 +282,21 @@ public class BaseOperatorTest implements QuarkusTestAfterEachCallback {
   public void cleanup() {
       Log.info("Deleting Keycloak CR");
 
-      // due to https://github.com/operator-framework/java-operator-sdk/issues/2314 we
-      // try to ensure that the operator has processed the delete event from root objects
       // this can be simplified to just the root deletion after we pick up the fix
       // it can be further simplified after https://github.com/fabric8io/kubernetes-client/issues/5838
       // to just a timed foreground deletion
       var roots = List.of(Keycloak.class, KeycloakRealmImport.class);
-      var dependents = List.of(StatefulSet.class, Secret.class, Service.class, Pod.class, Job.class);
-
-      var rootsDeleted = CompletableFuture.allOf(roots.stream()
-              .map(c -> k8sclient.resources(c).informOnCondition(List::isEmpty)).toArray(CompletableFuture[]::new));
-      roots.forEach(c -> k8sclient.resources(c).withGracePeriod(10).delete());
+      roots.forEach(c -> k8sclient.resources(c).delete());
+      // enforce that at least the statefulset / pods are gone
       try {
-          rootsDeleted.get(1, TimeUnit.MINUTES);
+          k8sclient
+                  .apps()
+                  .statefulSets()
+                  .inNamespace(namespace)
+                  .withLabels(Constants.DEFAULT_LABELS).informOnCondition(List::isEmpty).get(20, TimeUnit.SECONDS);
       } catch (Exception e) {
-          // delete event should have arrived quickly because this is a background delete
-          throw new RuntimeException(e);
+          throw KubernetesClientException.launderThrowable(e);
       }
-      dependents.stream().map(c -> k8sclient.resources(c).withLabels(Constants.DEFAULT_LABELS))
-              .forEach(r -> r.withGracePeriod(10).delete());
-      // enforce that the dependents are gone
-      Awaitility.await().during(5, TimeUnit.SECONDS).until(() -> {
-          if (dependents.stream().anyMatch(
-                  c -> !k8sclient.resources(c).withLabels(Constants.DEFAULT_LABELS).list().getItems().isEmpty())) {
-              // the operator must have recreated because it hasn't gotten the keycloak
-              // deleted event, keep cleaning
-              dependents.stream().map(c -> k8sclient.resources(c).withLabels(Constants.DEFAULT_LABELS))
-                      .forEach(r -> r.withGracePeriod(0).delete());
-              return false;
-          }
-          return true;
-      });
   }
 
   @Override
@@ -465,6 +433,11 @@ public class BaseOperatorTest implements QuarkusTestAfterEachCallback {
     if (operatorDeployment == OperatorDeployment.local) {
       Log.info("Stopping Operator");
       operator.stop();
+
+      // Avoid issues with Event Informers between tests
+      Log.info("Removing Controllers and application scoped DRs from CDI");
+      Stream.of(KeycloakController.class, KeycloakRealmImportController.class, KeycloakUpdateJobDependentResource.class)
+                      .forEach(c -> CDI.current().destroy(CDI.current().select(c).get()));
 
       Log.info("Creating new K8s Client");
       // create a new client bc operator has closed the old one

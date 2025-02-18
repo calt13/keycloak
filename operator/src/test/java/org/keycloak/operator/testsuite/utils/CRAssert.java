@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -119,6 +120,7 @@ public final class CRAssert {
                 .await()
                 .pollInterval(1, TimeUnit.SECONDS)
                 .timeout(Duration.ofMinutes(5))
+                .ignoreExceptions()
                 .untilAsserted(() -> client.pods()
                         .inNamespace(namespaceOf(keycloak))
                         .withLabels(Utils.allInstanceLabels(keycloak))
@@ -284,5 +286,27 @@ public final class CRAssert {
         return networkPolicy.getSpec().getIngress().stream()
                 .filter(rule -> rule.getPorts().stream().anyMatch(port -> port.getPort().getIntVal() == rulePort))
                 .findFirst();
+    }
+
+    public static CompletableFuture<List<Keycloak>> eventuallyRollingUpgradeStatus(KubernetesClient client, Keycloak keycloak) {
+        return client.resource(keycloak).informOnCondition(kcs -> {
+            try {
+                assertKeycloakStatusCondition(kcs.get(0), KeycloakStatusCondition.ROLLING_UPDATE, true, "Rolling out deployment update");
+                return true;
+            } catch (AssertionError e) {
+                return false;
+            }
+        });
+    }
+
+    public static CompletableFuture<List<Keycloak>> eventuallyRecreateUpgradeStatus(KubernetesClient client, Keycloak keycloak) {
+        return client.resource(keycloak).informOnCondition(kcs -> {
+            try {
+                assertKeycloakStatusCondition(kcs.get(0), KeycloakStatusCondition.READY, false, "Performing Keycloak upgrade");
+                return true;
+            } catch (AssertionError e) {
+                return false;
+            }
+        });
     }
 }

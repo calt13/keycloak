@@ -45,7 +45,8 @@ import org.keycloak.testsuite.AbstractTestRealmKeycloakTest;
 import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.ApiUtil;
 import org.keycloak.testsuite.updaters.ClientAttributeUpdater;
-import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.oauth.AccessTokenResponse;
+import org.keycloak.testsuite.util.oauth.AuthorizationEndpointResponse;
 import org.keycloak.util.TokenUtil;
 
 /**
@@ -128,7 +129,7 @@ public class NonceBackwardsCompatibleMapperTest extends AbstractTestRealmKeycloa
     }
 
     private void testIntrospection(String accessToken, String expectedNonce, boolean expected) throws JsonProcessingException {
-        String tokenResponse = oauth.introspectAccessTokenWithClientCredential("test-app", "password", accessToken);
+        String tokenResponse = oauth.client("test-app", "password").doIntrospectionAccessTokenRequest(accessToken);
         JsonNode nonce = new ObjectMapper().readTree(tokenResponse).get(OIDCLoginProtocol.NONCE_PARAM);
         checkNonce(expectedNonce, nonce != null? nonce.asText() : null, expected);
     }
@@ -138,7 +139,7 @@ public class NonceBackwardsCompatibleMapperTest extends AbstractTestRealmKeycloa
         oauth.nonce(nonce);
         oauth.responseMode(OIDCResponseMode.JWT.value());
         oauth.responseType(OIDCResponseType.TOKEN + " " + OIDCResponseType.ID_TOKEN);
-        OAuthClient.AuthorizationEndpointResponse response = oauth.doLogin("test-user@localhost", "password");
+        AuthorizationEndpointResponse response = oauth.doLogin("test-user@localhost", "password");
 
         Assert.assertTrue(response.isRedirected());
         AuthorizationResponseToken responseToken = oauth.verifyAuthorizationResponseToken(response.getResponse());
@@ -164,7 +165,7 @@ public class NonceBackwardsCompatibleMapperTest extends AbstractTestRealmKeycloa
         EventRepresentation loginEvent = events.expectLogin().assertEvent();
 
         String code = oauth.getCurrentQuery().get(OAuth2Constants.CODE);
-        OAuthClient.AccessTokenResponse response = oauth.doAccessTokenRequest(code, "password");
+        AccessTokenResponse response = oauth.doAccessTokenRequest(code);
 
         AccessToken token = oauth.verifyToken(response.getAccessToken());
         checkNonce(nonce, token.getNonce(), mapper);
@@ -177,7 +178,7 @@ public class NonceBackwardsCompatibleMapperTest extends AbstractTestRealmKeycloa
                 .detail(Details.REFRESH_TOKEN_TYPE, offlineSession? TokenUtil.TOKEN_TYPE_OFFLINE : TokenUtil.TOKEN_TYPE_REFRESH)
                 .assertEvent();
 
-        response = oauth.doRefreshTokenRequest(response.getRefreshToken(), "password");
+        response = oauth.doRefreshTokenRequest(response.getRefreshToken());
         events.expectRefresh(tokenEvent.getDetails().get(Details.REFRESH_TOKEN_ID), loginEvent.getSessionId())
                 .detail(Details.REFRESH_TOKEN_TYPE, offlineSession? TokenUtil.TOKEN_TYPE_OFFLINE : TokenUtil.TOKEN_TYPE_REFRESH)
                 .assertEvent();
